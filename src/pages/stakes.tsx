@@ -49,7 +49,7 @@ const StakesPage: NextPage = () => {
       <Header />
       <main className="flex-grow container mx-auto px-4 py-12">
         <div className="mb-12">
-          <h1 className="text-5xl font-bold tracking-tighter mb-2 bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-600">
+          <h1 className="text-5xl font-bold tracking-tighter mb-2 bg-clip-text text-transparent bg-gradient-to-b from-white to-gray-400">
             My Dashboard
           </h1>
           <p className="text-gray-400 text-lg">
@@ -61,7 +61,7 @@ const StakesPage: NextPage = () => {
           {/* Left Column: Stats */}
           <div className="lg:col-span-1 space-y-8 sticky top-28">
             <StatsSummaryCard stakes={stakes} isLoading={isLoading} />
-            <Card className="bg-gradient-to-br from-[#1A1A1A] to-black border-gray-800">
+            <Card className="bg-gradient-to-br from-gray-900/50 to-black border-gray-700">
               <CardContent className="p-6">
                 <h3 className="font-bold mb-4 text-white flex items-center gap-2"><Compass size={20} /> Ready for More?</h3>
                 <p className="text-gray-400 mb-6 text-sm">

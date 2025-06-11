@@ -1,48 +1,180 @@
-// src/components/feature/StakeHistoryCard.tsx
-
-import { Card, CardContent } from '@/components/ui/card';
-import { type UserStake } from '@/types';
-import { Badge } from '../ui/badge';
 import Link from 'next/link';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { type UserStake } from '@/types';
+import { Calendar, TrendingUp, TrendingDown, Clock, Zap, Users, ArrowRight, Target } from 'lucide-react';
 
 export function StakeHistoryCard({ stake }: { stake: UserStake }) {
-  const isWin = stake.status === 'WON';
-  const isLost = stake.status === 'LOST';
-  const isPending = !isWin && !isLost;
+  const stakeDate = new Date(stake.stakeTime);
+  const profit = stake.amountReturned - stake.amountStaked;
+  const profitPercentage = stake.amountStaked > 0 ? ((profit / stake.amountStaked) * 100) : 0;
 
-  const statusMap = {
-    WON: { text: 'Won', color: 'bg-green-900/80 text-green-300 border-green-700' },
-    LOST: { text: 'Lost', color: 'bg-red-900/80 text-red-300 border-red-700' },
-    PENDING: { text: 'Pending', color: 'bg-yellow-900/80 text-yellow-300 border-yellow-700' }
+  const getStatusBadge = () => {
+    switch (stake.status) {
+      case 'WON':
+        return (
+          <Badge className="bg-green-900/80 text-green-300 border-green-700 flex items-center gap-1.5 px-3 py-1">
+            <TrendingUp size={14} />
+            Won
+          </Badge>
+        );
+      case 'LOST':
+        return (
+          <Badge className="bg-red-900/80 text-red-300 border-red-700 flex items-center gap-1.5 px-3 py-1">
+            <TrendingDown size={14} />
+            Lost
+          </Badge>
+        );
+      case 'PENDING':
+        return (
+          <Badge className="bg-yellow-900/80 text-yellow-300 border-yellow-700 flex items-center gap-1.5 px-3 py-1">
+            <Clock size={14} />
+            Pending
+          </Badge>
+        );
+      default:
+        return null;
+    }
   };
 
-  const status = isWin ? statusMap.WON : isLost ? statusMap.LOST : statusMap.PENDING;
-  
+  const getPoolBadge = () => {
+    return stake.poolType === 'Alpha' ? (
+      <Badge variant="outline" className="bg-gray-900/50 text-gray-300 border-gray-600 flex items-center gap-1.5 px-3 py-1">
+        <Zap size={12} />
+        Alpha Pool
+      </Badge>
+    ) : (
+      <Badge variant="outline" className="bg-gray-900/50 text-gray-300 border-gray-600 flex items-center gap-1.5 px-3 py-1">
+        <Users size={12} />
+        Market Pool
+      </Badge>
+    );
+  };
+
   return (
     <Link href={`/${stake.match._id}`} className="block group">
-      <Card className="bg-gray-900/50 border-gray-800 hover:border-blue-500 transition-colors duration-300 group-hover:bg-gray-900">
-          <CardContent className="p-4 grid grid-cols-2 md:grid-cols-5 gap-4 items-center">
-              <div className="col-span-2 md:col-span-2">
-                  <p className="font-bold text-white group-hover:text-blue-400 transition-colors">{stake.match.teamA.name} vs {stake.match.teamB.name}</p>
-                  <p className="text-xs text-gray-400">
-                    Staked on <span className="font-semibold text-gray-300">{stake.prediction}</span> in the <span className="font-semibold text-gray-300">{stake.poolType} Pool</span>
-                  </p>
+      <div className="relative">
+        {/* Gradient border effect */}
+        <div className="absolute -inset-0.5 bg-gradient-to-r from-gray-600 to-gray-700 rounded-xl blur opacity-0 group-hover:opacity-30 transition duration-500"></div>
+        
+        <Card className="relative bg-gradient-to-br from-[#1A1A1A] to-black border-gray-800 group-hover:border-gray-700 transition-all duration-300 overflow-hidden">
+          <CardContent className="p-6">
+            {/* Header Section */}
+            <div className="flex items-start justify-between mb-6">
+              <div className="flex items-center gap-4">
+                {/* Team Logos */}
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <img 
+                      src={stake.match.teamA.logoUrl} 
+                      alt={stake.match.teamA.name} 
+                      className="w-10 h-10 rounded-full border-2 border-gray-700 group-hover:border-gray-600 transition-colors"
+                    />
+                  </div>
+                  <span className="text-sm text-gray-500 font-bold">VS</span>
+                  <div className="relative">
+                    <img 
+                      src={stake.match.teamB.logoUrl} 
+                      alt={stake.match.teamB.name} 
+                      className="w-10 h-10 rounded-full border-2 border-gray-700 group-hover:border-gray-600 transition-colors"
+                    />
+                  </div>
+                </div>
+                
+                {/* Match Info */}
+                <div>
+                  <h3 className="font-bold text-white group-hover:text-gray-200 transition-colors text-lg">
+                    {stake.match.teamA.name} vs {stake.match.teamB.name}
+                  </h3>
+                  <div className="flex items-center gap-3 mt-1">
+                    <div className="flex items-center gap-1.5 text-gray-400">
+                      <Calendar size={12} />
+                      <time className="text-xs font-medium">
+                        {stakeDate.toLocaleDateString('en-US', { 
+                          month: 'short', 
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </time>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-gray-400">
+                      <Target size={12} />
+                      <span className="text-xs font-medium">{stake.prediction}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
+              
+              {/* Status Badges */}
+              <div className="flex flex-col items-end gap-2">
+                {getStatusBadge()}
+                {getPoolBadge()}
+              </div>
+            </div>
+
+            {/* Stats Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-5 bg-gradient-to-r from-gray-900/40 to-gray-800/40 rounded-xl border border-gray-700/50">
               <div className="text-center">
-                  <p className="text-sm text-gray-400">Staked</p>
-                  <p className="font-mono text-white">{stake.amountStaked.toFixed(2)} CHZ</p>
+                <p className="text-xs text-gray-400 mb-2 font-medium uppercase tracking-wide">Staked</p>
+                <p className="font-mono font-bold text-white text-lg">{stake.amountStaked.toFixed(2)}</p>
+                <p className="text-xs text-gray-500">CHZ</p>
               </div>
+              
               <div className="text-center">
-                  <p className="text-sm text-gray-400">Return</p>
-                  <p className={`font-mono font-bold ${isWin ? 'text-green-400' : isLost ? 'text-red-400' : 'text-gray-400'}`}>
-                      {stake.amountReturned.toFixed(2)} CHZ
-                  </p>
+                <p className="text-xs text-gray-400 mb-2 font-medium uppercase tracking-wide">
+                  {stake.status === 'PENDING' ? 'Potential' : 'Returned'}
+                </p>
+                <p className="font-mono font-bold text-white text-lg">
+                  {stake.status === 'PENDING' ? '—' : stake.amountReturned.toFixed(2)}
+                </p>
+                <p className="text-xs text-gray-500">CHZ</p>
               </div>
-              <div className="text-right">
-                <Badge variant="outline" className={status.color}>{status.text}</Badge>
+              
+              <div className="text-center">
+                <p className="text-xs text-gray-400 mb-2 font-medium uppercase tracking-wide">Profit/Loss</p>
+                {stake.status === 'PENDING' ? (
+                  <div>
+                    <p className="font-mono font-bold text-gray-400 text-lg">Pending</p>
+                    <p className="text-xs text-gray-500">—</p>
+                  </div>
+                ) : (
+                  <div>
+                    <p className={`font-mono font-bold text-lg ${
+                      profit >= 0 ? 'text-green-400' : 'text-red-400'
+                    }`}>
+                      {profit >= 0 ? '+' : ''}{profit.toFixed(2)}
+                    </p>
+                    <p className={`text-xs font-medium ${
+                      profitPercentage >= 0 ? 'text-green-400' : 'text-red-400'
+                    }`}>
+                      {profitPercentage >= 0 ? '+' : ''}{profitPercentage.toFixed(1)}%
+                    </p>
+                  </div>
+                )}
               </div>
+              
+              <div className="text-center">
+                <p className="text-xs text-gray-400 mb-2 font-medium uppercase tracking-wide">Multiplier</p>
+                <p className="font-mono font-bold text-white text-lg">
+                  {stake.status === 'PENDING' ? '—' : 
+                   stake.amountStaked > 0 ? (stake.amountReturned / stake.amountStaked).toFixed(2) : '0.00'}
+                </p>
+                <p className="text-xs text-gray-500">x</p>
+              </div>
+            </div>
+
+            {/* Hover Action */}
+            <div className="mt-5 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-y-2 group-hover:translate-y-0">
+              <p className="text-sm text-gray-400 font-medium">View match details & analysis</p>
+              <div className="flex items-center gap-2 text-gray-400 group-hover:text-white transition-colors">
+                <span className="text-sm font-medium">View Match</span>
+                <ArrowRight size={16} className="transform group-hover:translate-x-1 transition-transform" />
+              </div>
+            </div>
           </CardContent>
-      </Card>
+        </Card>
+      </div>
     </Link>
   );
 }

@@ -40,4 +40,6 @@ export interface LeaderboardEntry {
     userAddress: string;
     netProfit: number;
     winRate: number;
+    totalStakes?: number;
+    totalWagered?: number;
 }
