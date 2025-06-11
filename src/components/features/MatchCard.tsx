@@ -1,43 +1,69 @@
-
 import Link from 'next/link';
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Match } from '@/types';
+import { Badge } from '@/components/ui/badge';
+import { type Match } from '@/types';
 
 export function MatchCard({ match }: { match: Match }) {
-  const matchDate = new Date(match.matchTime).toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const matchDate = new Date(match.matchTime);
+  const isUpcoming = match.status === 'UPCOMING';
+
+  const getAlphaPick = () => {
+    const { winA_prob, winB_prob, draw_prob } = match.alphaPredictions;
+    if (winA_prob > winB_prob && winA_prob > draw_prob) return { team: match.teamA.name, outcome: 'Win' };
+    if (winB_prob > winA_prob && winB_prob > draw_prob) return { team: match.teamB.name, outcome: 'Win' };
+    return { team: 'Draw', outcome: '' };
+  };
+  const alphaPick = getAlphaPick();
 
   return (
-    <Card className="bg-[#181818] border-gray-800 hover:border-blue-500 transition-all">
-      <CardHeader className="flex-row items-center justify-between pb-2">
-        <div className="flex items-center gap-2">
-            <img src={match.teamA.logoUrl} alt={match.teamA.name} className="w-8 h-8"/>
-            <span className="font-bold text-lg text-white">{match.teamA.name}</span>
-        </div>
-        <span className="text-gray-400">vs</span>
-        <div className="flex items-center gap-2">
-            <span className="font-bold text-lg text-white">{match.teamB.name}</span>
-            <img src={match.teamB.logoUrl} alt={match.teamB.name} className="w-8 h-8"/>
-        </div>
-      </CardHeader>
-      <CardContent className="text-center">
-        <p className="text-sm text-gray-400 font-mono">{matchDate}</p>
-        <div className="mt-4 p-2 bg-blue-900/50 rounded-lg border border-blue-500/50">
-            <p className="text-sm text-blue-300 font-mono">
-                🤖 Alpha Pick: {match.alphaPredictions.winA_prob > match.alphaPredictions.winB_prob ? match.teamA.name : match.teamB.name} Win
-            </p>
-        </div>
-      </CardContent>
-      <CardFooter>
-        <Button asChild className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold">
-          <Link href={`/match/${match._id}`}>View Pools & Stake</Link>
-        </Button>
-      </CardFooter>
-    </Card>
+    <div className="group relative">
+      <div className="absolute -inset-0.5 bg-gradient-to-r from-pink-600 to-purple-600 rounded-lg blur opacity-20 group-hover:opacity-75 transition duration-1000 group-hover:duration-200 animate-tilt"></div>
+      <Card className="relative bg-[#1A1A1A] border-gray-800 group-hover:border-gray-600 transition-all duration-300 overflow-hidden">
+        <CardHeader className="p-4 border-b border-gray-800">
+          <div className="flex justify-between items-center">
+            <time dateTime={match.matchTime} className="text-xs text-gray-400 font-mono uppercase">
+              {matchDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              {' - '}
+              {matchDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}
+            </time>
+            {isUpcoming ? (
+              <Badge variant="secondary" className="bg-blue-900/80 text-blue-300 border-blue-700">Upcoming</Badge>
+            ) : (
+              <Badge variant="outline" className="text-gray-400">{match.status}</Badge>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="p-6">
+          <div className="flex items-center justify-between">
+            {/* Team A */}
+            <div className="flex flex-col items-center gap-2 text-center w-2/5">
+              <img src={match.teamA.logoUrl} alt={match.teamA.name} className="w-12 h-12 mb-2"/>
+              <span className="font-bold text-base text-white text-wrap">{match.teamA.name}</span>
+            </div>
+            
+            <span className="text-xl font-bold text-gray-500">vs</span>
+
+            {/* Team B */}
+            <div className="flex flex-col items-center gap-2 text-center w-2/5">
+              <img src={match.teamB.logoUrl} alt={match.teamB.name} className="w-12 h-12 mb-2"/>
+              <span className="font-bold text-base text-white text-wrap">{match.teamB.name}</span>
+            </div>
+          </div>
+          
+          <div className="mt-6 p-3 bg-gray-900/50 rounded-lg border border-gray-700/50 text-center">
+              <p className="text-xs text-blue-300 font-mono flex items-center justify-center gap-2">
+                  <span className="text-lg">🤖</span>
+                  <span className="font-bold">Alpha Pick:</span> {alphaPick.team} {alphaPick.outcome}
+              </p>
+          </div>
+        </CardContent>
+        <CardFooter className="p-4 bg-gray-900/30">
+          <Button asChild className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold transition-transform duration-200 group-hover:scale-105">
+            <Link href={`/${match._id}`}>View Pools & Stake</Link>
+          </Button>
+        </CardFooter>
+      </Card>
+    </div>
   );
 }

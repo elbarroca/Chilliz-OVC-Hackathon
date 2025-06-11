@@ -20,7 +20,7 @@ export function AlphaInsight() {
                 </CardTitle>
             </CardHeader>
             <CardContent>
-                <p className="text-blue-200 italic">"{insight}"</p>
+                <p className="text-blue-200 italic">&ldquo;{insight}&rdquo;</p>
             </CardContent>
         </Card>
     )

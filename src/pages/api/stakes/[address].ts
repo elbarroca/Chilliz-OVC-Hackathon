@@ -1,4 +1,3 @@
-
 import type { NextApiRequest, NextApiResponse } from 'next';
 import clientPromise from '@/lib/mongo';
 import { type UserStake } from '@/types';
@@ -35,4 +34,4 @@ export default async function handler(
         console.error(e);
         return res.status(500).json({ error: 'Internal Server Error' });
     }
-}
+} 
