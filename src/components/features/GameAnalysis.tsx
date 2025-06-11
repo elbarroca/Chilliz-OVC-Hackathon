@@ -1,3 +1,4 @@
+import Image from 'next/image';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { type Match } from '@/types';
@@ -181,7 +182,7 @@ function GoalTimingChart({ timings, teamColor }: { timings: number[], teamColor:
             style={{ height: `${value}%` }}
           ></div>
           <span className="text-[10px] text-gray-500 pt-1">
-            {index * 15 + 15}'
+            {index * 15 + 15}&apos;
           </span>
         </div>
       ))}
@@ -255,7 +256,7 @@ export function GameAnalysis({ match }: { match: Match }) {
             {/* Home Team Form */}
             <div className="space-y-4 p-4 rounded-lg border border-gray-800 bg-gray-900/30">
               <div className="flex items-center gap-3">
-                <img src={match.teamA.logoUrl} alt={match.teamA.name} className="w-8 h-8" />
+                <Image src={match.teamA.logoUrl} alt={match.teamA.name} width={32} height={32} className="w-8 h-8" />
                 <h4 className="font-semibold text-white text-lg">{match.teamA.name}</h4>
               </div>
               
@@ -282,7 +283,7 @@ export function GameAnalysis({ match }: { match: Match }) {
             {/* Away Team Form */}
             <div className="space-y-4 p-4 rounded-lg border border-gray-800 bg-gray-900/30">
               <div className="flex items-center gap-3">
-                <img src={match.teamB.logoUrl} alt={match.teamB.name} className="w-8 h-8" />
+                <Image src={match.teamB.logoUrl} alt={match.teamB.name} width={32} height={32} className="w-8 h-8" />
                 <h4 className="font-semibold text-white text-lg">{match.teamB.name}</h4>
               </div>
               
@@ -402,14 +403,14 @@ export function GameAnalysis({ match }: { match: Match }) {
         <CardContent className="grid md:grid-cols-2 gap-6">
           <div className="space-y-3">
             <h4 className="font-semibold text-white flex items-center gap-2">
-              <img src={match.teamA.logoUrl} alt={match.teamA.name} className="w-6 h-6" />
+              <Image src={match.teamA.logoUrl} alt={match.teamA.name} width={24} height={24} className="w-6 h-6" />
               {match.teamA.name}
             </h4>
             {playerSpotlight.home.map((p: any) => <PlayerStatCard key={p.name} player={p} />)}
           </div>
           <div className="space-y-3">
             <h4 className="font-semibold text-white flex items-center gap-2">
-              <img src={match.teamB.logoUrl} alt={match.teamB.name} className="w-6 h-6" />
+              <Image src={match.teamB.logoUrl} alt={match.teamB.name} width={24} height={24} className="w-6 h-6" />
               {match.teamB.name}
             </h4>
             {playerSpotlight.away.map((p: any) => <PlayerStatCard key={p.name} player={p} />)}
@@ -520,7 +521,7 @@ export function GameAnalysis({ match }: { match: Match }) {
           <CardContent className="space-y-4">
             <div>
               <h4 className="font-semibold text-white mb-2 flex items-center gap-2">
-                <img src={match.teamA.logoUrl} alt={match.teamA.name} className="w-5 h-5" />
+                <Image src={match.teamA.logoUrl} alt={match.teamA.name} width={20} height={20} className="w-5 h-5" />
                 {match.teamA.name}
               </h4>
               {injuries.home.length > 0 ? (
@@ -538,7 +539,7 @@ export function GameAnalysis({ match }: { match: Match }) {
             
             <div>
               <h4 className="font-semibold text-white mb-2 flex items-center gap-2 mt-4">
-                <img src={match.teamB.logoUrl} alt={match.teamB.name} className="w-5 h-5" />
+                <Image src={match.teamB.logoUrl} alt={match.teamB.name} width={20} height={20} className="w-5 h-5" />
                 {match.teamB.name}
               </h4>
               {injuries.away.length > 0 ? (

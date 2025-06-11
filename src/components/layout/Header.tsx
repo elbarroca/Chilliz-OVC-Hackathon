@@ -1,6 +1,7 @@
 // src/components/layout/Header.tsx
 
 import Link from "next/link";
+import Image from "next/image";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 
 export function Header() {
@@ -8,7 +9,7 @@ export function Header() {
     <header className="sticky top-0 z-50 w-full border-b border-gray-800 bg-black/80 backdrop-blur-lg">
       <div className="container mx-auto flex h-20 items-center justify-between px-4">
         <Link href="/" className="flex items-center gap-3">
-          <img src="https://s2.coinmarketcap.com/static/img/coins/64x64/4066.png" alt="Chiliz Logo" className="h-8 w-8" />
+          <Image src="https://s2.coinmarketcap.com/static/image/coins/64x64/4066.png" alt="Chiliz Logo" width={32} height={32} className="h-8 w-8" />
           <span className="text-2xl font-bold text-white tracking-tighter">AlphaStakes</span>
         </Link>
         <div className="flex items-center gap-6">

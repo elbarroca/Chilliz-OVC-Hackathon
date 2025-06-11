@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Image from 'next/image';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -56,7 +57,7 @@ export function FeaturedMatch({ match }: { match: Match }) {
             {/* Team A */}
             <div className="flex items-center gap-4">
               <div className="relative">
-                <img src={match.teamA.logoUrl} alt={match.teamA.name} className="w-20 h-20 group-hover:scale-110 transition-transform duration-300"/>
+                <Image src={match.teamA.logoUrl} alt={match.teamA.name} width={80} height={80} className="w-20 h-20 group-hover:scale-110 transition-transform duration-300"/>
                 <div className="absolute -inset-1 bg-gradient-to-r from-gray-500 to-gray-600 rounded-full opacity-0 group-hover:opacity-20 transition-opacity duration-300"></div>
               </div>
               <div>
@@ -84,7 +85,7 @@ export function FeaturedMatch({ match }: { match: Match }) {
                 {match.league && <p className="text-sm text-gray-400">{match.league}</p>}
               </div>
               <div className="relative">
-                <img src={match.teamB.logoUrl} alt={match.teamB.name} className="w-20 h-20 group-hover:scale-110 transition-transform duration-300"/>
+                <Image src={match.teamB.logoUrl} alt={match.teamB.name} width={80} height={80} className="w-20 h-20 group-hover:scale-110 transition-transform duration-300"/>
                 <div className="absolute -inset-1 bg-gradient-to-r from-gray-600 to-gray-700 rounded-full opacity-0 group-hover:opacity-20 transition-opacity duration-300"></div>
               </div>
             </div>

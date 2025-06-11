@@ -30,7 +30,7 @@ export function StatsSummaryCard({ stakes, isLoading }: StatsSummaryCardProps) {
     );
   }
 
-  if (!stakes || stakes.length === 0) {
+  if (!stakes || !Array.isArray(stakes) || stakes.length === 0) {
     return (
       <Card className="bg-gradient-to-br from-gray-900/50 to-black border-gray-700">
         <CardHeader>

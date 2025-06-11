@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Image from 'next/image';
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -54,7 +55,7 @@ export function MatchCard({ match }: { match: Match }) {
           <div className="flex items-center justify-between mb-6">
             {/* Team A */}
             <div className="flex flex-col items-center gap-2 text-center w-2/5">
-              <img src={match.teamA.logoUrl} alt={match.teamA.name} className="w-12 h-12 mb-2 group-hover:scale-110 transition-transform"/>
+              <Image src={match.teamA.logoUrl} alt={match.teamA.name} width={48} height={48} className="w-12 h-12 mb-2 group-hover:scale-110 transition-transform"/>
               <span className="font-bold text-base text-white text-wrap">{match.teamA.name}</span>
             </div>
             
@@ -70,7 +71,7 @@ export function MatchCard({ match }: { match: Match }) {
 
             {/* Team B */}
             <div className="flex flex-col items-center gap-2 text-center w-2/5">
-              <img src={match.teamB.logoUrl} alt={match.teamB.name} className="w-12 h-12 mb-2 group-hover:scale-110 transition-transform"/>
+              <Image src={match.teamB.logoUrl} alt={match.teamB.name} width={48} height={48} className="w-12 h-12 mb-2 group-hover:scale-110 transition-transform"/>
               <span className="font-bold text-base text-white text-wrap">{match.teamB.name}</span>
             </div>
           </div>

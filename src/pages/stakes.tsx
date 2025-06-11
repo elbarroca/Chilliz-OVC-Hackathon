@@ -12,7 +12,19 @@ import { type UserStake } from "@/types";
 import { TrendingUp, History, Compass } from 'lucide-react';
 import { mockUserStakes } from "@/lib/mockData";
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
+const fetcher = async (url: string): Promise<UserStake[]> => {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`HTTP error! status: ${res.status}`);
+    }
+    return await res.json();
+  } catch (error) {
+    console.error('Failed to fetch stakes:', error);
+    // Return mock data as fallback when API fails
+    return mockUserStakes;
+  }
+};
 
 const StakesPage: NextPage = () => {
   const { address, isConnected } = useAccount();
@@ -22,7 +34,10 @@ const StakesPage: NextPage = () => {
     fetcher,
     {
       fallbackData: isConnected ? mockUserStakes : undefined, // Use mock data when connected
-      revalidateOnFocus: false
+      revalidateOnFocus: false,
+      onError: (error) => {
+        console.error('SWR error:', error);
+      }
     }
   );
 
@@ -60,7 +75,7 @@ const StakesPage: NextPage = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
           {/* Left Column: Stats */}
           <div className="lg:col-span-1 space-y-8 sticky top-28">
-            <StatsSummaryCard stakes={stakes} isLoading={isLoading} />
+            <StatsSummaryCard stakes={Array.isArray(stakes) ? stakes : []} isLoading={isLoading} />
             <Card className="bg-gradient-to-br from-gray-900/50 to-black border-gray-700">
               <CardContent className="p-6">
                 <h3 className="font-bold mb-4 text-white flex items-center gap-2"><Compass size={20} /> Ready for More?</h3>
@@ -100,7 +115,7 @@ const StakesPage: NextPage = () => {
                 </Card>
             )}
 
-            {stakes && (
+            {stakes && Array.isArray(stakes) && (
               stakes.length > 0 ? (
                 <div className="space-y-4">
                   {stakes.map((stake) => (

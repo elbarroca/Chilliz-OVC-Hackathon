@@ -1,4 +1,5 @@
 import { type GetServerSideProps, type NextPage } from "next";
+import Image from "next/image";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { StakingInterface } from "@/components/features/StakingInterface";
@@ -69,7 +70,7 @@ const MatchPage: NextPage<{ match: Match }> = ({ match }) => {
                 <div className="flex justify-center items-center gap-6 md:gap-12 mb-8">
                     <div className="flex flex-col items-center gap-4 w-1/3 md:w-auto">
                       <div className="relative group">
-                        <img src={match.teamA.logoUrl} alt={match.teamA.name} className="w-24 h-24 md:w-32 md:h-32 transition-transform group-hover:scale-110"/>
+                        <Image src={match.teamA.logoUrl} alt={match.teamA.name} className="w-24 h-24 md:w-32 md:h-32 transition-transform group-hover:scale-110"/>
                         <div className="absolute -inset-2 bg-gradient-to-r from-gray-500 to-gray-600 rounded-full opacity-0 group-hover:opacity-20 transition-opacity duration-300 blur-lg"></div>
                       </div>
                       <h2 className="text-xl md:text-3xl font-bold">{match.teamA.name}</h2>
@@ -87,7 +88,7 @@ const MatchPage: NextPage<{ match: Match }> = ({ match }) => {
                     
                     <div className="flex flex-col items-center gap-4 w-1/3 md:w-auto">
                       <div className="relative group">
-                        <img src={match.teamB.logoUrl} alt={match.teamB.name} className="w-24 h-24 md:w-32 md:h-32 transition-transform group-hover:scale-110"/>
+                        <Image src={match.teamB.logoUrl} alt={match.teamB.name} className="w-24 h-24 md:w-32 md:h-32 transition-transform group-hover:scale-110"/>
                         <div className="absolute -inset-2 bg-gradient-to-r from-gray-600 to-gray-700 rounded-full opacity-0 group-hover:opacity-20 transition-opacity duration-300 blur-lg"></div>
                       </div>
                       <h2 className="text-xl md:text-3xl font-bold">{match.teamB.name}</h2>

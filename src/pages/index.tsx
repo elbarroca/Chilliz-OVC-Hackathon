@@ -10,6 +10,7 @@ import { ArrowRight, BrainCircuit, Users, Lock, TrendingUp, Clock } from "lucide
 import { mockMatches, mockUserStakes } from "@/lib/mockData";
 import { useAccount } from "wagmi";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import Image from "next/image";
 
 // This server-side function fetches your match data before the page loads.
 export const getServerSideProps: GetServerSideProps = async (context) => {
@@ -70,9 +71,9 @@ const MyMatchesWidget = () => {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className="flex items-center gap-1">
-                        <img src={stake.match.teamA.logoUrl} alt={stake.match.teamA.name} className="w-6 h-6" />
+                        <Image src={stake.match.teamA.logoUrl} alt={stake.match.teamA.name} width={24} height={24} className="w-6 h-6" />
                         <span className="text-xs text-gray-400">vs</span>
-                        <img src={stake.match.teamB.logoUrl} alt={stake.match.teamB.name} className="w-6 h-6" />
+                        <Image src={stake.match.teamB.logoUrl} alt={stake.match.teamB.name} width={24} height={24} className="w-6 h-6" />
                       </div>
                       <div>
                         <p className="text-sm font-medium text-white">{stake.prediction}</p>

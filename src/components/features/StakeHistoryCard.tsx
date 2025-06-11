@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Image from 'next/image';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { type UserStake } from '@/types';
@@ -85,9 +86,11 @@ export function StakeHistoryCard({ stake }: { stake: UserStake }) {
                 {/* Team Logos */}
                 <div className="flex items-center gap-3">
                   <div className="relative">
-                    <img 
+                    <Image 
                       src={stake.match.teamA.logoUrl} 
                       alt={stake.match.teamA.name} 
+                      width={40}
+                      height={40}
                       className={`w-10 h-10 rounded-full border-2 transition-colors ${
                         isPending 
                           ? 'border-yellow-500/70 group-hover:border-yellow-400' 
@@ -100,9 +103,11 @@ export function StakeHistoryCard({ stake }: { stake: UserStake }) {
                   </div>
                   <span className={`text-sm font-bold ${isPending ? 'text-yellow-400' : 'text-gray-500'}`}>VS</span>
                   <div className="relative">
-                    <img 
+                    <Image 
                       src={stake.match.teamB.logoUrl} 
                       alt={stake.match.teamB.name} 
+                      width={40}
+                      height={40}
                       className={`w-10 h-10 rounded-full border-2 transition-colors ${
                         isPending 
                           ? 'border-yellow-500/70 group-hover:border-yellow-400' 

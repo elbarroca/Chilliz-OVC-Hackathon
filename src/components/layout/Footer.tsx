@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Image from 'next/image';
 import { GithubIcon } from '../icons/GithubIcon';
 
 export function Footer() {
@@ -7,7 +8,7 @@ export function Footer() {
       <div className="container mx-auto grid grid-cols-1 md:grid-cols-3 gap-8 px-4 py-12 text-sm text-gray-400">
         <div className="flex flex-col gap-4 items-start">
             <Link href="/" className="flex items-center gap-3">
-                <img src="https://s2.coinmarketcap.com/static/img/coins/64x64/4066.png" alt="Chiliz Logo" className="h-8 w-8" />
+                <Image src="https://s2.coinmarketcap.com/static/image/coins/64x64/4066.png" alt="Chiliz Logo" width={32} height={32} className="h-8 w-8" />
                 <span className="text-xl font-bold text-white tracking-tighter">AlphaStakes</span>
             </Link>
             <p className="max-w-xs">The premier prediction market where fan passion meets data-driven strategy.</p>
@@ -33,7 +34,7 @@ export function Footer() {
                     </li>
                     <li>
                         <Link href="https://www.chiliz.com/" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors flex items-center gap-2">
-                            <img src="https://s2.coinmarketcap.com/static/img/coins/64x64/4066.png" alt="Chiliz Logo" className="h-4 w-4" />
+                            <Image src="https://s2.coinmarketcap.com/static/image/coins/64x64/4066.png" alt="Chiliz Logo" width={16} height={16} className="h-4 w-4" />
                             Powered by Chiliz
                         </Link>
                     </li>
