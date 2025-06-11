@@ -209,7 +209,7 @@ const LandingPage: NextPage<{ matches: Match[] }> = ({ matches }) => {
                         <div className="p-8 rounded-xl bg-gradient-to-br from-gray-900 to-black border border-gray-700 hover:border-gray-600 transition-colors">
                             <Users className="w-10 h-10 mb-4 text-gray-300 mx-auto" />
                             <h3 className="text-xl font-bold text-white mb-2">Community Driven</h3>
-                            <p className="text-gray-400">AlphaStakes is more than a platform; it's a community. Engage with fellow sports fans, share insights, and compete for the top spot on our leaderboards.</p>
+                            <p className="text-gray-400">AlphaStakes is more than a platform; it&apos;s a community. Engage with fellow sports fans, share insights, and compete for the top spot on our leaderboards.</p>
                         </div>
                         <div className="p-8 rounded-xl bg-gradient-to-br from-gray-900 to-black border border-gray-700 hover:border-gray-600 transition-colors">
                             <Lock className="w-10 h-10 mb-4 text-gray-300 mx-auto" />
@@ -270,7 +270,7 @@ const LandingPage: NextPage<{ matches: Match[] }> = ({ matches }) => {
                 Ready to Stake Your Claim?
               </h2>
               <p className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
-                Join thousands of sports fans who are already earning with AlphaStakes. Whether you trust your instincts or prefer data-driven decisions, we've got the perfect pool for you.
+                Join thousands of sports fans who are already earning with AlphaStakes. Whether you trust your instincts or prefer data-driven decisions, we&apos;ve got the perfect pool for you.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-12">
                 <Button asChild size="lg" className="bg-white text-black font-bold hover:bg-gray-200 px-8 py-4 text-lg transform hover:scale-105 transition-transform duration-300">

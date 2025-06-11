@@ -110,7 +110,7 @@ const StakesPage: NextPage = () => {
               ) : (
                 <div className="text-center py-20 border-2 border-dashed border-gray-800 rounded-xl bg-[#111111]/50">
                   <h3 className="text-xl font-semibold text-gray-300">No Stakes Yet</h3>
-                  <p className="text-gray-500 mt-2">You haven't placed any stakes. Time to make your first move!</p>
+                  <p className="text-gray-500 mt-2">You haven&apos;t placed any stakes. Time to make your first move!</p>
                    <Button asChild className="mt-6">
                       <Link href="/">Explore Matches</Link>
                     </Button>
