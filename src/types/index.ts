@@ -10,6 +10,7 @@ export interface Team {
     teamA: Team;
     teamB: Team;
     matchTime: string; // ISO Date String
+    league?: string; // e.g., 'Champions League'
     status: 'UPCOMING' | 'LIVE' | 'ENDED';
     alphaPredictions: {
       winA_prob: number;
@@ -21,9 +22,10 @@ export interface Team {
 export interface UserStake {
     _id: string;
     userAddress: string;
-    match: { // A simplified version of the Match object for context
-        teamA: string;
-        teamB: string;
+    match: { 
+        _id: string;
+        teamA: Team;
+        teamB: Team;
     };
     prediction: string; // e.g., "Manchester City Win"
     poolType: 'Market' | 'Alpha';
