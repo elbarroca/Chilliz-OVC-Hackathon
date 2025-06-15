@@ -78,8 +78,19 @@ class GameScraper:
             # European Competitions
              "2": {"name": "UEFA Champions League", "tier": 1, "country": "Europe"},         # Europe's premier club competition
              "3": {"name": "UEFA Europa League", "tier": 1, "country": "Europe"},            # Europe's secondary club competition
-             "848": {"name": "UEFA Europa Conference League", "tier": 1, "country": "Europe"} # Europe's tertiary club competition
+             "848": {"name": "UEFA Europa Conference League", "tier": 1, "country": "Europe"}, # Europe's tertiary club competition
+            # International Competitions
+            "1186": {"name": "FIFA Club World Cup - Play-In", "tier": 1, "country": "World"},
+            "850": {"name": "UEFA U21 Championship - Qualification", "tier": 1, "country": "World"},
+            "36": {"name": "Africa Cup of Nations - Qualification", "tier": 1, "country": "World"},
+            "38": {"name": "UEFA U21 Championship", "tier": 1, "country": "World"},
+            "15": {"name": "FIFA Club World Cup", "tier": 1, "country": "World"},
+            "16": {"name": "CONCACAF Champions League", "tier": 1, "country": "World"},
+            "667": {"name": "Friendlies Clubs", "tier": 1, "country": "World"},
+            "531": {"name": "UEFA Super Cup", "tier": 1, "country": "World"},
         }
+        
+       
         
         # Use all_leagues as the meaningful leagues (active leagues)
         self.meaningful_leagues = self.all_leagues.copy()
@@ -222,7 +233,7 @@ class GameScraper:
             
             # Determine the correct season based on the date
             # Football seasons typically run from August to May/July
-            # So for dates in 2025, we should use season 2024 until around July/August
+            # So for dates in 2025, we should use season 2025 until around July/August
             current_year = date.year
             current_month = date.month
             
