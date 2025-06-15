@@ -104,6 +104,13 @@ except Exception as e:
     print(f"✗ Failed to import TeamFixturesFetcher: {e}")
     sys.exit(1)
 
+try:
+    from football_data.endpoints.odds_fetcher import OddsFetcher
+    print("✓ OddsFetcher imported successfully")
+except Exception as e:
+    print(f"✗ Failed to import OddsFetcher: {e}")
+    sys.exit(1)
+
 # Configure logging
 logging.basicConfig(
     level=logging.DEBUG,  # Changed to DEBUG to see more details
@@ -271,6 +278,7 @@ async def main():
     match_processor = MatchProcessor()
     fixture_details_fetcher = FixtureDetailsFetcher(db_manager_instance=db_manager)
     team_fixtures_fetcher = TeamFixturesFetcher()
+    odds_fetcher = OddsFetcher()
 
     # Prioritize fixtures from our defined leagues
     priority_fixtures = []
@@ -316,6 +324,22 @@ async def main():
     if not processed_fixture_ids:
         logger.info("No fixtures were successfully processed. Exiting.")
         return
+
+    # --- 2.5. Fetch Odds ---
+    logger.info("\n--- Step 2.5: Fetching odds for processed fixtures ---")
+    try:
+        odds_results = await odds_fetcher.process_fixtures_odds(
+            fixture_ids=processed_fixture_ids,
+            force_reprocess=False # Set to True to always refetch
+        )
+        processed = odds_results.get("processed_count", 0)
+        skipped = odds_results.get("skipped_count", 0)
+        failed = len(odds_results.get("failed_fixtures", []))
+        logger.info(f"Odds fetching complete. Processed: {processed}, Skipped: {skipped}, Failed: {failed}")
+        if failed > 0:
+            logger.warning(f"Failed to fetch odds for fixtures: {odds_results.get('failed_fixtures', [])}")
+    except Exception as e:
+        logger.error(f"An error occurred during odds fetching: {e}", exc_info=True)
 
     # --- 3. Create Unified Data Files ---
     logger.info("\n--- Step 3: Creating unified data files for processed fixtures ---")

@@ -58,37 +58,39 @@ class TeamFixturesFetcher:
             logger.error(f"Unexpected error making API request to {url}: {e}", exc_info=True)
             return None
 
-    def get_and_save_team_fixtures(self, team_id: int, season: int) -> Optional[List[int]]:
+    def get_team_fixtures_from_api(self, team_id: int, season: int) -> Optional[List[Dict[str, Any]]]:
         """
-        Fetch fixtures for a specific team and season, save the list to DB,
-        and return the list of fixture IDs.
+        Fetch fixtures for a specific team and season from the API, save the list of IDs to DB,
+        and return the full list of fixture data dictionaries.
 
         Args:
             team_id: Team ID to fetch fixtures for
             season: Season year
 
         Returns:
-            Optional[List[int]]: List of fixture IDs or None if fetch/save failed.
+            Optional[List[Dict[str, Any]]]: List of fixture dictionaries or None if fetch failed.
         """
-        logger.info(f"Fetching and saving fixtures for team ID: {team_id}, Season: {season}")
+        logger.info(f"Fetching fixtures from API for team ID: {team_id}, Season: {season}")
 
         params = {"team": str(team_id), "season": str(season)}
         response_data = self._make_api_request("fixtures", params)
 
         if response_data and response_data.get("response"):
-            fixture_ids = [item.get("fixture", {}).get("id") for item in response_data["response"]]
+            fixtures_data = response_data["response"]
+            fixture_ids = [item.get("fixture", {}).get("id") for item in fixtures_data if item.get("fixture")]
             fixture_ids = [fid for fid in fixture_ids if fid]
 
             if fixture_ids:
-                 logger.info(f"Found {len(fixture_ids)} fixtures for Team {team_id}, Season {season}.")
-                 success = db_manager.save_team_season_fixture_list(team_id, season, fixture_ids)
-                 if not success:
-                      logger.error(f"Failed to save fixture list to DB for Team {team_id}, Season {season}.")
-                 return fixture_ids
+                logger.info(f"Found {len(fixture_ids)} fixtures for Team {team_id}, Season {season}.")
+                # Save the list of IDs for potential future caching, but return the full data
+                success = db_manager.save_team_season_fixture_list(team_id, season, fixture_ids)
+                if not success:
+                    logger.error(f"Failed to save fixture ID list to DB for Team {team_id}, Season {season}.")
+                return fixtures_data
             else:
-                 logger.info(f"No fixtures found in response for Team {team_id}, Season {season}.")
-                 db_manager.save_team_season_fixture_list(team_id, season, [])
-                 return []
+                logger.info(f"No fixtures found in API response for Team {team_id}, Season {season}.")
+                db_manager.save_team_season_fixture_list(team_id, season, [])
+                return []
         else:
             logger.error(f"Failed to fetch or parse fixtures response for Team {team_id}, Season {season}.")
             return None
@@ -111,22 +113,3 @@ def main():
          return
 
     fetcher = TeamFixturesFetcher()
-
-    # --- Example Usage ---
-    test_team_id = 33 # Manchester United
-    test_season = 2023
-
-    logger.info(f"\n--- Testing fetch and save for Team {test_team_id}, Season {test_season} ---")
-    fixture_list = fetcher.get_and_save_team_fixtures(team_id=test_team_id, season=test_season)
-
-    if fixture_list is not None:
-        logger.info(f"Successfully fetched and attempted save for Team {test_team_id}, Season {test_season}. Fixture count: {len(fixture_list)}")
-    else:
-        logger.error(f"Failed to fetch/save fixtures for Team {test_team_id}, Season {test_season}.")
-
-    # --- Clean up DB connection ---
-    db_manager.close_connection()
-    logger.info("DB connection closed.")
-
-if __name__ == "__main__":
-    main()

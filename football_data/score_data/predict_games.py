@@ -691,173 +691,149 @@ def calculate_strength_adjusted_lambdas(fixture_data: Dict) -> Tuple[Optional[fl
 
 
 # --- Monte Carlo Simulation ---
-def evaluate_simulation_scenarios(hg: int, ag: int) -> Tuple[List[str], str]: # Return score string too
-    """
-    Evaluates a single simulation outcome (hg, ag) for various simple
-    and compound scenarios. Includes more combinations like Result/DC + U/O 3.5.
-    """
-    scenarios_met = set()
-    tg = hg + ag # Total goals
-    score_string = f"{hg}-{ag}" # Create score string
-
-    # --- Simple Scenarios ---
-    # 1X2 Result
-    if hg > ag: scenarios_met.add("H")
-    elif hg == ag: scenarios_met.add("D")
-    else: scenarios_met.add("A")
-
-    # Double Chance
-    if hg >= ag: scenarios_met.add("1X") # Home or Draw
-    if hg <= ag: scenarios_met.add("X2") # Away or Draw
-    if hg != ag: scenarios_met.add("12") # Home or Away
-
-    # BTTS (Both Teams To Score)
-    if hg > 0 and ag > 0: scenarios_met.add("BTTS Yes")
-    else: scenarios_met.add("BTTS No")
-
-    # Over/Under Goals (Common thresholds)
-    if tg > 0.5: scenarios_met.add("O0.5"); scenarios_met.add("U0.5 No") # Explicit No
-    else: scenarios_met.add("U0.5"); scenarios_met.add("O0.5 No")
-
-    if tg > 1.5: scenarios_met.add("O1.5"); scenarios_met.add("U1.5 No")
-    else: scenarios_met.add("U1.5"); scenarios_met.add("O1.5 No")
-
-    if tg > 2.5: scenarios_met.add("O2.5"); scenarios_met.add("U2.5 No")
-    else: scenarios_met.add("U2.5"); scenarios_met.add("O2.5 No")
-
-    if tg > 3.5: scenarios_met.add("O3.5"); scenarios_met.add("U3.5 No")
-    else: scenarios_met.add("U3.5"); scenarios_met.add("O3.5 No")
-
-    if tg > 4.5: scenarios_met.add("O4.5"); scenarios_met.add("U4.5 No")
-    else: scenarios_met.add("U4.5"); scenarios_met.add("O4.5 No")
-
-
-    # --- Compound Scenarios (Expanded) ---
-
-    # Result + O/U 2.5
-    if "H" in scenarios_met and "O2.5" in scenarios_met: scenarios_met.add("H and O2.5")
-    if "H" in scenarios_met and "U2.5" in scenarios_met: scenarios_met.add("H and U2.5")
-    if "D" in scenarios_met and "O2.5" in scenarios_met: scenarios_met.add("D and O2.5")
-    if "D" in scenarios_met and "U2.5" in scenarios_met: scenarios_met.add("D and U2.5")
-    if "A" in scenarios_met and "O2.5" in scenarios_met: scenarios_met.add("A and O2.5")
-    if "A" in scenarios_met and "U2.5" in scenarios_met: scenarios_met.add("A and U2.5")
-
-    # Result + O/U 3.5 (Added)
-    if "H" in scenarios_met and "O3.5" in scenarios_met: scenarios_met.add("H and O3.5")
-    if "H" in scenarios_met and "U3.5" in scenarios_met: scenarios_met.add("H and U3.5")
-    if "D" in scenarios_met and "O3.5" in scenarios_met: scenarios_met.add("D and O3.5")
-    if "D" in scenarios_met and "U3.5" in scenarios_met: scenarios_met.add("D and U3.5")
-    if "A" in scenarios_met and "O3.5" in scenarios_met: scenarios_met.add("A and O3.5")
-    if "A" in scenarios_met and "U3.5" in scenarios_met: scenarios_met.add("A and U3.5")
-
-    # Double Chance + BTTS
-    if "1X" in scenarios_met and "BTTS Yes" in scenarios_met: scenarios_met.add("1X and BTTS Yes")
-    if "1X" in scenarios_met and "BTTS No" in scenarios_met: scenarios_met.add("1X and BTTS No")
-    if "X2" in scenarios_met and "BTTS Yes" in scenarios_met: scenarios_met.add("X2 and BTTS Yes")
-    if "X2" in scenarios_met and "BTTS No" in scenarios_met: scenarios_met.add("X2 and BTTS No")
-    if "12" in scenarios_met and "BTTS Yes" in scenarios_met: scenarios_met.add("12 and BTTS Yes")
-    if "12" in scenarios_met and "BTTS No" in scenarios_met: scenarios_met.add("12 and BTTS No") # Added 12 + BTTS No
-
-    # Double Chance + O/U 2.5 (Added)
-    if "1X" in scenarios_met and "O2.5" in scenarios_met: scenarios_met.add("1X and O2.5")
-    if "1X" in scenarios_met and "U2.5" in scenarios_met: scenarios_met.add("1X and U2.5")
-    if "X2" in scenarios_met and "O2.5" in scenarios_met: scenarios_met.add("X2 and O2.5")
-    if "X2" in scenarios_met and "U2.5" in scenarios_met: scenarios_met.add("X2 and U2.5")
-    if "12" in scenarios_met and "O2.5" in scenarios_met: scenarios_met.add("12 and O2.5")
-    if "12" in scenarios_met and "U2.5" in scenarios_met: scenarios_met.add("12 and U2.5")
-
-    # Double Chance + O/U 3.5 (Added)
-    if "1X" in scenarios_met and "O3.5" in scenarios_met: scenarios_met.add("1X and O3.5")
-    if "1X" in scenarios_met and "U3.5" in scenarios_met: scenarios_met.add("1X and U3.5")
-    if "X2" in scenarios_met and "O3.5" in scenarios_met: scenarios_met.add("X2 and O3.5")
-    if "X2" in scenarios_met and "U3.5" in scenarios_met: scenarios_met.add("X2 and U3.5")
-    if "12" in scenarios_met and "O3.5" in scenarios_met: scenarios_met.add("12 and O3.5")
-    if "12" in scenarios_met and "U3.5" in scenarios_met: scenarios_met.add("12 and U3.5")
-
-
-    # BTTS + O/U
-    if "BTTS Yes" in scenarios_met and "O2.5" in scenarios_met: scenarios_met.add("BTTS Yes and O2.5")
-    if "BTTS Yes" in scenarios_met and "U2.5" in scenarios_met: scenarios_met.add("BTTS Yes and U2.5") # Added
-    if "BTTS No" in scenarios_met and "O2.5" in scenarios_met: scenarios_met.add("BTTS No and O2.5")   # Added
-    if "BTTS No" in scenarios_met and "U2.5" in scenarios_met: scenarios_met.add("BTTS No and U2.5")
-    if "BTTS Yes" in scenarios_met and "O3.5" in scenarios_met: scenarios_met.add("BTTS Yes and O3.5")
-    if "BTTS Yes" in scenarios_met and "U3.5" in scenarios_met: scenarios_met.add("BTTS Yes and U3.5") # Added
-    if "BTTS No" in scenarios_met and "O3.5" in scenarios_met: scenarios_met.add("BTTS No and O3.5")   # Added
-    if "BTTS No" in scenarios_met and "U3.5" in scenarios_met: scenarios_met.add("BTTS No and U3.5")   # Added
-
-
-    # Result + BTTS
-    if "H" in scenarios_met and "BTTS Yes" in scenarios_met: scenarios_met.add("H and BTTS Yes")
-    if "H" in scenarios_met and "BTTS No" in scenarios_met: scenarios_met.add("H and BTTS No")
-    if "A" in scenarios_met and "BTTS Yes" in scenarios_met: scenarios_met.add("A and BTTS Yes")
-    if "A" in scenarios_met and "BTTS No" in scenarios_met: scenarios_met.add("A and BTTS No")
-    if "D" in scenarios_met and "BTTS Yes" in scenarios_met: scenarios_met.add("D and BTTS Yes")
-    if "D" in scenarios_met and "BTTS No" in scenarios_met: scenarios_met.add("D and BTTS No")
-
-    return list(scenarios_met), score_string
-
 def run_monte_carlo_simulation(
     lambda_home: float,
     lambda_away: float,
     num_simulations: int = MONTE_CARLO_SIMULATIONS,
-    random_seed: Optional[int] = 42,
-    max_score_plot: int = 5 # Max goals per side for score matrix
-) -> Optional[Tuple[Dict[str, float], Dict[str, float]]]: # Return two dicts
+    random_seed: Optional[int] = 42
+) -> Optional[Tuple[Dict[str, float], Dict[str, float]]]:
     """
-    Runs MC simulation for a single fixture based on lambda values.
-    Returns:
-        - Dictionary of scenario probabilities (prob_X).
-        - Dictionary of scoreline probabilities (score_X-Y).
+    Runs a Monte Carlo simulation using Poisson-distributed random variables.
+    Calculates probabilities for a comprehensive set of betting markets efficiently using NumPy.
     """
-    logger.info(f"Starting Monte Carlo simulation with {num_simulations} runs...")
-    if lambda_home < 0 or lambda_away < 0:
-        logger.error("Negative lambda values provided for Monte Carlo.")
+    if lambda_home is None or lambda_away is None or lambda_home < 0 or lambda_away < 0:
+        logger.error(f"Cannot run Monte Carlo simulation with invalid lambdas: Home={lambda_home}, Away={lambda_away}")
         return None, None
 
+    # Set seed for reproducibility
     if random_seed is not None:
         np.random.seed(random_seed)
 
-    # Simulate goals for the single match
-    sim_home_goals = poisson.rvs(lambda_home, size=num_simulations)
-    sim_away_goals = poisson.rvs(lambda_away, size=num_simulations)
+    # Generate all simulated scores in one go
+    sim_hg = np.random.poisson(lambda_home, num_simulations)
+    sim_ag = np.random.poisson(lambda_away, num_simulations)
+    total_goals = sim_hg + sim_ag
 
-    # Count scenarios and scorelines across all simulations
-    scenario_counts = Counter()
-    scoreline_counts = Counter()
-    for i in range(num_simulations):
-        hg = sim_home_goals[i]
-        ag = sim_away_goals[i]
-        scenarios_this_run, score_string = evaluate_simulation_scenarios(hg, ag)
-        scenario_counts.update(scenarios_this_run)
-        # Only count scorelines within the desired plot range
-        if hg <= max_score_plot and ag <= max_score_plot:
-            scoreline_counts[score_string] += 1 # Use the score string as key
+    # --- Boolean Arrays for Core Outcomes ---
+    is_H = sim_hg > sim_ag
+    is_D = sim_hg == sim_ag
+    is_A = sim_hg < sim_ag
+    is_1X = is_H | is_D
+    is_12 = is_H | is_A
+    is_X2 = is_A | is_D
+    is_BTTS_Y = (sim_hg > 0) & (sim_ag > 0)
+    is_BTTS_N = ~is_BTTS_Y
 
-    if not scenario_counts:
-        logger.warning("Monte Carlo simulation did not produce any scenarios.")
-        return {}, {} # Return empty dicts
+    # --- Boolean Arrays for Goal Lines ---
+    goal_lines = [1.5, 2.5, 3.5, 4.5]
+    is_O = {line: total_goals > line for line in goal_lines}
+    is_U = {line: total_goals <= line for line in goal_lines}
 
-    # Calculate probabilities
-    total_sims_float = float(num_simulations)
-    scenario_probabilities = {
-        f"prob_{scenario}": count / total_sims_float
-        for scenario, count in scenario_counts.items()
-    }
-    scoreline_probabilities = {
-         f"score_{score}": count / total_sims_float
-         for score, count in scoreline_counts.items()
-    }
+    # --- Boolean Arrays for Goal Bands ---
+    is_goals_0_1 = (total_goals >= 0) & (total_goals <= 1)
+    is_goals_2_3 = (total_goals >= 2) & (total_goals <= 3)
+    is_goals_2_4 = (total_goals >= 2) & (total_goals <= 4)
+    is_goals_3_plus = total_goals >= 3
 
-    logger.info(f"Monte Carlo simulation finished. Found {len(scenario_probabilities)} unique scenarios and {len(scoreline_probabilities)} scorelines (up to {max_score_plot}-{max_score_plot}).")
-    return scenario_probabilities, scoreline_probabilities
+    # --- Calculate Probabilities ---
+    mc_probs = {}
+    
+    # Expected Goals (from lambdas)
+    mc_probs['expected_HG'] = lambda_home
+    mc_probs['expected_AG'] = lambda_away
+
+    # Core Probabilities
+    mc_probs['prob_H'] = np.mean(is_H)
+    mc_probs['prob_D'] = np.mean(is_D)
+    mc_probs['prob_A'] = np.mean(is_A)
+    mc_probs['prob_1X'] = np.mean(is_1X)
+    mc_probs['prob_12'] = np.mean(is_12)
+    mc_probs['prob_X2'] = np.mean(is_X2)
+    mc_probs['prob_BTTS_Y'] = np.mean(is_BTTS_Y)
+    mc_probs['prob_BTTS_N'] = np.mean(is_BTTS_N)
+
+    # Goal Line Probabilities
+    for line in goal_lines:
+        mc_probs[f'prob_O{str(line).replace(".", "")}'] = np.mean(is_O[line])
+        mc_probs[f'prob_U{str(line).replace(".", "")}'] = np.mean(is_U[line])
+
+    # Goal Band Probabilities
+    mc_probs['prob_goals_0_1'] = np.mean(is_goals_0_1)
+    mc_probs['prob_goals_2_3'] = np.mean(is_goals_2_3)
+    mc_probs['prob_goals_2_4'] = np.mean(is_goals_2_4)
+    mc_probs['prob_goals_3_plus'] = np.mean(is_goals_3_plus)
+
+    # --- Compound Probabilities ---
+    # Result + Goal Lines
+    for line in goal_lines:
+        line_str = str(line).replace(".", "")
+        mc_probs[f'prob_H_and_O{line_str}'] = np.mean(is_H & is_O[line])
+        mc_probs[f'prob_D_and_O{line_str}'] = np.mean(is_D & is_O[line])
+        mc_probs[f'prob_A_and_O{line_str}'] = np.mean(is_A & is_O[line])
+        mc_probs[f'prob_H_and_U{line_str}'] = np.mean(is_H & is_U[line])
+        mc_probs[f'prob_D_and_U{line_str}'] = np.mean(is_D & is_U[line])
+        mc_probs[f'prob_A_and_U{line_str}'] = np.mean(is_A & is_U[line])
+
+    # Double Chance + Goal Lines
+    for line in goal_lines:
+        line_str = str(line).replace(".", "")
+        mc_probs[f'prob_1X_and_O{line_str}'] = np.mean(is_1X & is_O[line])
+        mc_probs[f'prob_12_and_O{line_str}'] = np.mean(is_12 & is_O[line])
+        mc_probs[f'prob_X2_and_O{line_str}'] = np.mean(is_X2 & is_O[line])
+        mc_probs[f'prob_1X_and_U{line_str}'] = np.mean(is_1X & is_U[line])
+        mc_probs[f'prob_12_and_U{line_str}'] = np.mean(is_12 & is_U[line])
+        mc_probs[f'prob_X2_and_U{line_str}'] = np.mean(is_X2 & is_U[line])
+
+    # Result + BTTS
+    mc_probs['prob_H_and_BTTS_Y'] = np.mean(is_H & is_BTTS_Y)
+    mc_probs['prob_D_and_BTTS_Y'] = np.mean(is_D & is_BTTS_Y)
+    mc_probs['prob_A_and_BTTS_Y'] = np.mean(is_A & is_BTTS_Y)
+    mc_probs['prob_H_and_BTTS_N'] = np.mean(is_H & is_BTTS_N)
+    mc_probs['prob_D_and_BTTS_N'] = np.mean(is_D & is_BTTS_N)
+    mc_probs['prob_A_and_BTTS_N'] = np.mean(is_A & is_BTTS_N)
+
+    # Double Chance + BTTS
+    mc_probs['prob_1X_and_BTTS_Y'] = np.mean(is_1X & is_BTTS_Y)
+    mc_probs['prob_12_and_BTTS_Y'] = np.mean(is_12 & is_BTTS_Y)
+    mc_probs['prob_X2_and_BTTS_Y'] = np.mean(is_X2 & is_BTTS_Y)
+    mc_probs['prob_1X_and_BTTS_N'] = np.mean(is_1X & is_BTTS_N)
+    mc_probs['prob_12_and_BTTS_N'] = np.mean(is_12 & is_BTTS_N)
+    mc_probs['prob_X2_and_BTTS_N'] = np.mean(is_X2 & is_BTTS_N)
+
+    # BTTS + Goal Lines
+    mc_probs['prob_O25_and_BTTS_Y'] = np.mean(is_O[2.5] & is_BTTS_Y)
+    mc_probs['prob_O25_and_BTTS_N'] = np.mean(is_O[2.5] & is_BTTS_N)
+    mc_probs['prob_O35_and_BTTS_Y'] = np.mean(is_O[3.5] & is_BTTS_Y)
+    mc_probs['prob_O35_and_BTTS_N'] = np.mean(is_O[3.5] & is_BTTS_N)
+
+    # --- Score Matrix (for plotting or detailed analysis) ---
+    # This part is computationally heavier, but useful for display.
+    # We only calculate it up to a reasonable score limit.
+    max_score_plot = 5
+    score_matrix = np.zeros((max_score_plot + 1, max_score_plot + 1))
+    # Use a faster method to populate the matrix
+    limited_hg = sim_hg[sim_hg <= max_score_plot]
+    limited_ag = sim_ag[sim_ag <= max_score_plot]
+    # We need to filter them together
+    valid_indices = (sim_hg <= max_score_plot) & (sim_ag <= max_score_plot)
+    coords_hg = sim_hg[valid_indices]
+    coords_ag = sim_ag[valid_indices]
+    
+    if len(coords_hg) > 0:
+        # Use numpy's histogram2d for efficient counting
+        score_hist, _, _ = np.histogram2d(coords_hg, coords_ag, bins=[np.arange(max_score_plot + 2), np.arange(max_score_plot + 2)])
+        score_matrix = score_hist / num_simulations
+    
+    score_matrix_probs = {f"prob_score_{h}-{a}": score_matrix[h, a] for h in range(max_score_plot + 1) for a in range(max_score_plot + 1)}
+
+    logger.info(f"Monte Carlo simulation complete ({num_simulations} iterations).")
+    
+    return mc_probs, score_matrix_probs
 
 # --- Helper Function to Identify Unique Concepts ---
 def get_selection_concept(selection_key: str) -> Optional[Tuple]:
     """
-    Parses a selection key (e.g., 'prob_O2.5', 'poisson_prob_H and BTTS No', 'biv_poisson_score_1-1')
-    and returns a canonical, comparable representation of the underlying concept.
-    Returns None if the key format is unrecognized.
-    Handles different prefixes (prob_, poisson_prob_, biv_poisson_prob_).
+    Deconstructs a complex selection key into its constituent parts for easier processing.
     """
     # Remove prefixes first
     key = selection_key

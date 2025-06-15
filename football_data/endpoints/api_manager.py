@@ -433,6 +433,10 @@ class APIManager:
         """Ensure the API manager is initialized with keys."""
         if not self.api_keys:
             self.initialize()
+    
+    def is_initialized(self) -> bool:
+        """Check if the API manager is initialized with keys."""
+        return len(self.api_keys) > 0
             
 # Create a singleton instance
 api_manager = APIManager() 
