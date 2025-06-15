@@ -334,6 +334,77 @@ async def run_prediction_generation(target_date: datetime):
     }
 
 
+async def run_prediction_generation_and_save(target_date: datetime):
+    """
+    Orchestrates the prediction generation part of the pipeline for a given date
+    and ensures all results are saved to the predictions collection.
+    """
+    logger.info(f"--- Running Prediction Generation and Save for {target_date.strftime('%Y-%m-%d')} ---")
+    
+    date_str = target_date.strftime('%Y-%m-%d')
+    
+    # Get all fixture IDs for the date
+    fixture_ids = db_manager.get_match_fixture_ids_for_date(date_str)
+    
+    if not fixture_ids:
+        logger.warning("No fixture IDs found for prediction generation.")
+        return {"status": "warning", "message": "No fixture IDs were available for prediction."}
+
+    saved_predictions = 0
+    failed_predictions = 0
+    prediction_results = []
+    
+    for fixture_id in fixture_ids:
+        try:
+            logger.info(f"Processing prediction for fixture {fixture_id}")
+            
+            # Get match processor data for this fixture
+            match_processor_data = db_manager.get_match_processor_data(str(fixture_id))
+            if not match_processor_data:
+                logger.warning(f"No match processor data found for fixture {fixture_id}, skipping.")
+                failed_predictions += 1
+                continue
+            
+            # Process prediction directly from database data
+            prediction_data = process_fixture_from_db_data(match_processor_data)
+            if prediction_data:
+                # Add metadata for saving
+                prediction_data['date_str'] = date_str
+                prediction_data['generated_at_utc'] = datetime.utcnow().isoformat()
+                
+                # Save prediction to database
+                success = db_manager.save_prediction_results(prediction_data)
+                if success:
+                    saved_predictions += 1
+                    prediction_results.append({
+                        "fixture_id": fixture_id,
+                        "home_team": prediction_data.get("home_team"),
+                        "away_team": prediction_data.get("away_team"),
+                        "prediction_types": [k for k in prediction_data.keys() if k.endswith('_probs') and prediction_data[k] is not None]
+                    })
+                    logger.info(f"Saved new prediction for fixture {fixture_id}")
+                else:
+                    failed_predictions += 1
+                    logger.error(f"Failed to save prediction for fixture {fixture_id}")
+            else:
+                failed_predictions += 1
+                logger.warning(f"Failed to generate prediction for fixture {fixture_id}")
+                    
+        except Exception as e:
+            failed_predictions += 1
+            logger.error(f"Error predicting for fixture {fixture_id}: {e}", exc_info=True)
+
+    logger.info(f"Saved {saved_predictions} predictions. {failed_predictions} failed.")
+    logger.info("--- Prediction Generation and Save Complete ---")
+    return {
+        "status": "success", 
+        "saved_predictions": saved_predictions,
+        "failed_predictions": failed_predictions,
+        "total_fixtures": len(fixture_ids),
+        "prediction_results": prediction_results
+    }
+
+
 async def backfill_team_history(
     team_id: int, 
     season: int, 
@@ -448,74 +519,53 @@ async def run_edge_analysis(date: datetime):
     logger.info(f"--- Running Edge Analysis for {date.strftime('%Y-%m-%d')} ---")
     date_str = date.strftime('%Y-%m-%d')
     
-    # 1. Get all fixture IDs for the given date that have been processed
-    fixture_ids = db_manager.get_match_fixture_ids_for_date(date_str)
-    
-    value_bets = []
-
-    for fixture_id in fixture_ids:
-        # 2. Fetch predictions and odds from the database
-        prediction_data = db_manager.get_prediction_results(str(fixture_id))
-        odds_data = db_manager.get_odds_data(str(fixture_id))
-
-        if not prediction_data or not odds_data:
-            logger.debug(f"Skipping fixture {fixture_id}: Missing prediction or odds data.")
-            continue
-
-        # Extract the probabilities and bookmaker odds (assuming Bet365, ID "8")
-        probabilities = prediction_data.get("mc_probs", {})
-        bookmakers = odds_data.get("bookmakers", [])
-        bet365_odds = next((b for b in bookmakers if b.get("bookmaker", {}).get("id") == 8), None)
-
-        if not bet365_odds:
-            logger.debug(f"Skipping fixture {fixture_id}: No Bet365 odds found.")
-            continue
-
-        # 3. Iterate through our mapped markets to find value
-        for prob_key, market_info in MARKET_MAPPING.items():
-            if prob_key not in probabilities:
-                continue
-
-            our_prob = probabilities[prob_key]
-            market_name = market_info['market_name']
-            selection_value = market_info['selection_value']
-
-            # Find the corresponding market and selection in the odds data
-            market_odds = next((m for m in bet365_odds.get("bets", []) if m.get("name") == market_name), None)
-
-            if not market_odds:
-                continue
+    try:
+        from football_data.score_data.edge_analyzer import EdgeAnalyzer
+        
+        # Initialize the edge analyzer
+        analyzer = EdgeAnalyzer(bookmaker_name="Bet365")
+        
+        # Get all fixture IDs for the given date
+        fixture_ids = db_manager.get_match_fixture_ids_for_date(date_str)
+        
+        if not fixture_ids:
+            logger.warning(f"No fixtures found for {date_str}")
+            return {"status": "warning", "message": "No fixtures found for the given date"}
+        
+        # Collect fixture data with predictions and odds
+        fixtures_data = []
+        
+        for fixture_id in fixture_ids:
+            # Fetch predictions and odds from the database
+            prediction_data = db_manager.get_prediction_results(str(fixture_id))
+            odds_data = db_manager.get_odds_data(str(fixture_id))
             
-            selection_odds = next((s for s in market_odds.get("values", []) if s.get("value") == selection_value), None)
-
-            if not selection_odds:
-                continue
-            
-            try:
-                decimal_odds = float(selection_odds['odd'])
-                
-                # 4. Calculate Edge: (Probability * Odds) - 1
-                edge = (our_prob * decimal_odds) - 1
-
-                # 5. Identify as a value bet if edge is positive
-                if edge > 0:
-                    bet = {
-                        "fixture_id": fixture_id,
-                        "home_team": prediction_data.get("home_team"),
-                        "away_team": prediction_data.get("away_team"),
-                        "market": market_name,
-                        "selection": selection_value,
-                        "probability": round(our_prob, 4),
-                        "odds": decimal_odds,
-                        "edge": round(edge, 4)
-                    }
-                    value_bets.append(bet)
-            except (ValueError, TypeError):
-                logger.warning(f"Could not parse odds '{selection_odds.get('odd')}' for fixture {fixture_id}")
-                continue
-
-    # Sort bets by the highest edge
-    sorted_bets = sorted(value_bets, key=lambda x: x['edge'], reverse=True)
-    
-    logger.info(f"Found {len(sorted_bets)} value bets for {date_str}.")
-    return {"status": "success", "value_bets": sorted_bets} 
+            if prediction_data and odds_data:
+                fixtures_data.append({
+                    "fixture_id": str(fixture_id),
+                    "predictions": prediction_data,
+                    "odds": odds_data
+                })
+            else:
+                logger.debug(f"Skipping fixture {fixture_id}: Missing prediction or odds data")
+        
+        if not fixtures_data:
+            logger.warning(f"No fixtures with both predictions and odds found for {date_str}")
+            return {"status": "warning", "message": "No fixtures with complete data found"}
+        
+        # Run the edge analysis
+        analysis_results = analyzer.analyze_date(date_str, fixtures_data)
+        
+        logger.info(f"Edge analysis complete for {date_str}: {analysis_results['total_value_bets']} value bets found")
+        
+        return {
+            "status": "success",
+            "analysis": analysis_results
+        }
+        
+    except Exception as e:
+        logger.error(f"Error during edge analysis for {date_str}: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "message": f"Edge analysis failed: {str(e)}"
+        } 

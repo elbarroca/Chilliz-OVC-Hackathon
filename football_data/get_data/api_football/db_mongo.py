@@ -8,6 +8,9 @@ from dotenv import load_dotenv
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+# Set NumExpr thread limit before any imports that might use it
+os.environ['NUMEXPR_MAX_THREADS'] = '12'
+
 logger = logging.getLogger(__name__)
 
 class MongoDBManager:
@@ -43,7 +46,7 @@ class MongoDBManager:
         self._initialized = False
 
         script_dir = Path(__file__).resolve().parent
-        project_root = script_dir.parent.parent
+        project_root = script_dir.parent.parent.parent  # Go up one more level to reach the actual project root
         dotenv_path = project_root / '.env'
         load_dotenv(dotenv_path=dotenv_path)
 
@@ -581,12 +584,48 @@ class MongoDBManager:
             logger.error(f"Error saving match processor data for {fixture_id}: {e}", exc_info=True)
             return False
 
-    def check_match_processor_data_exists(self, fixture_id: str) -> bool:
+    def check_prediction_exists(self, fixture_id: str) -> bool:
+        """
+        Check if prediction results for a specific fixture ID already exist.
+        """
+        assert self._initialized and self._db is not None, "DB not initialized"
+        assert isinstance(fixture_id, str) and fixture_id, "Fixture ID must be a non-empty string"
+        
+        # Create predictions collection if it doesn't exist
+        if not hasattr(self, '_predictions_collection') or self._predictions_collection is None:
+            self._predictions_collection = self._db['predictions']
+        
+        try:
+            return self._predictions_collection.count_documents({'_id': fixture_id}) > 0
+        except Exception as e:
+            logger.error(f"Error checking prediction existence for fixture {fixture_id}: {e}", exc_info=True)
+            return False
+
+    def get_match_processor_data(self, fixture_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve a single match processor document by its fixture ID.
+        """
         assert self._initialized and self._match_processor_collection is not None, "DB not initialized or match_processor collection missing"
         assert isinstance(fixture_id, str) and fixture_id, "Fixture ID must be a non-empty string"
+        
+        try:
+            return self._match_processor_collection.find_one({'_id': fixture_id})
+        except Exception as e:
+            logger.error(f"Error getting match processor data for fixture {fixture_id}: {e}", exc_info=True)
+            return None
 
-        count = self._match_processor_collection.count_documents({"_id": fixture_id}, limit=1)
-        return count > 0
+    def check_match_processor_data_exists(self, fixture_id: str) -> bool:
+        """
+        Check if match processor data exists for a specific fixture ID.
+        """
+        assert self._initialized and self._match_processor_collection is not None, "DB not initialized or match_processor collection missing"
+        assert isinstance(fixture_id, str) and fixture_id, "Fixture ID must be a non-empty string"
+        
+        try:
+            return self._match_processor_collection.count_documents({'_id': fixture_id}) > 0
+        except Exception as e:
+            logger.error(f"Error checking match processor data existence for fixture {fixture_id}: {e}", exc_info=True)
+            return False
 
     def get_fixture_ids_from_daily_games_range(self, start_date: datetime, end_date: datetime) -> List[int]:
         assert self._initialized and self._daily_games_collection is not None, "DB not initialized or daily_games collection missing"
@@ -646,12 +685,6 @@ class MongoDBManager:
 
         logger.info(f"Identified {len(missing_ids_int)} missing fixture IDs in 'matches'.")
         return missing_ids_int
-
-    def get_match_processor_data(self, fixture_id: str) -> Optional[Dict[str, Any]]:
-        assert self._initialized and self._match_processor_collection is not None, "DB not initialized or match_processor collection missing"
-        assert isinstance(fixture_id, str) and fixture_id, "Fixture ID must be a non-empty string"
-        logger.debug(f"Fetching data from match_processor collection for fixture_id: {fixture_id}")
-        return self._match_processor_collection.find_one({"_id": fixture_id})
 
     def get_match_fixture_ids_for_date(self, date_str: str) -> List[int]:
         """
@@ -789,9 +822,22 @@ class MongoDBManager:
             logger.error(f"Unexpected error saving prediction data for {fixture_id}: {e}", exc_info=True)
             return False
 
+    def get_prediction_results(self, fixture_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get prediction results for a specific fixture.
+        """
+        assert self._initialized and self._db is not None, "DB not initialized"
+        assert isinstance(fixture_id, str) and fixture_id, "Fixture ID must be a non-empty string"
+        
+        # Create predictions collection if it doesn't exist
+        if not hasattr(self, '_predictions_collection') or self._predictions_collection is None:
+            self._predictions_collection = self._db['predictions']
+        
+        return self._predictions_collection.find_one({"_id": fixture_id})
+
     def get_matches_by_date_range(self, start_date: str, end_date: str) -> List[Dict[str, Any]]:
         """
-        Get all matches within a date range.
+        Retrieves all matches within a specified date range.
         """
         assert self._initialized and self._matches_collection is not None, "DB not initialized or matches collection missing"
         assert isinstance(start_date, str) and len(start_date) == 10, "start_date must be in YYYY-MM-DD format"

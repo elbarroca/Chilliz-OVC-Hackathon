@@ -103,6 +103,7 @@ async def craft_predictions(
     """
     Triggers the prediction pipeline for a given date. This should be run
     after the data for that date has been successfully fetched.
+    Results are automatically saved to the predictions collection.
     """
     try:
         target_date = datetime.strptime(date, "%Y-%m-%d")
@@ -110,6 +111,24 @@ async def craft_predictions(
         raise HTTPException(status_code=400, detail="Invalid date format. Please use YYYY-MM-DD.")
         
     result = await trigger_prediction_generation(target_date)
+    return result
+
+@app.post("/predictions/save/{date}", tags=["Data Pipeline"])
+async def save_predictions_to_db(
+    date: str = Path(..., description="Target date in YYYY-MM-DD format.")
+):
+    """
+    Generates predictions for a given date and saves them to the predictions collection.
+    This endpoint specifically focuses on saving prediction results to MongoDB.
+    """
+    try:
+        target_date = datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Please use YYYY-MM-DD.")
+    
+    from football_data.api.pipeline_orchestrator import run_prediction_generation_and_save
+    
+    result = await run_prediction_generation_and_save(target_date)
     return result
 
 @app.get("/analysis/edge/{date}", tags=["Analysis"])
@@ -127,6 +146,98 @@ async def analyze_edge(
         
     result = await trigger_edge_analysis(target_date)
     return result
+
+@app.get("/predictions/{fixture_id}", tags=["Analysis"])
+async def get_prediction_results(
+    fixture_id: str = Path(..., description="Fixture ID to get predictions for.")
+):
+    """
+    Retrieves stored prediction results for a specific fixture ID.
+    """
+    try:
+        from football_data.get_data.api_football.db_mongo import db_manager
+        
+        prediction_data = db_manager.get_prediction_results(fixture_id)
+        if not prediction_data:
+            raise HTTPException(status_code=404, detail=f"No prediction results found for fixture {fixture_id}")
+        
+        return {
+            "status": "success",
+            "fixture_id": fixture_id,
+            "predictions": prediction_data
+        }
+    except Exception as e:
+        logger.error(f"Error retrieving predictions for fixture {fixture_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving predictions: {str(e)}")
+
+@app.get("/value-bets/{date}", tags=["Analysis"])
+async def find_value_bets(
+    date: str = Path(..., description="Target date in YYYY-MM-DD format.")
+):
+    """
+    Finds value betting opportunities for a given date by analyzing
+    stored predictions against bookmaker odds.
+    """
+    try:
+        target_date = datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Please use YYYY-MM-DD.")
+    
+    try:
+        from football_data.score_data.value_bet_finder import ValueBetFinder
+        
+        finder = ValueBetFinder(bookmaker_name="Bet365")
+        results = finder.find_value_bets_for_date(date)
+        
+        return results
+        
+    except Exception as e:
+        logger.error(f"Error finding value bets for {date}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error finding value bets: {str(e)}")
+
+@app.post("/value-bets/save/{date}", tags=["Analysis"])
+async def save_value_bets(
+    date: str = Path(..., description="Target date in YYYY-MM-DD format.")
+):
+    """
+    Finds value betting opportunities for a given date and saves them
+    to the betting papers collection in the database.
+    """
+    try:
+        target_date = datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Please use YYYY-MM-DD.")
+    
+    try:
+        from football_data.score_data.value_bet_finder import ValueBetFinder
+        
+        finder = ValueBetFinder(bookmaker_name="Bet365")
+        results = finder.save_value_bets_to_db(date)
+        
+        return results
+        
+    except Exception as e:
+        logger.error(f"Error saving value bets for {date}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error saving value bets: {str(e)}")
+
+@app.get("/value-bets/fixture/{fixture_id}", tags=["Analysis"])
+async def find_value_bets_for_fixture(
+    fixture_id: str = Path(..., description="Fixture ID to analyze for value bets.")
+):
+    """
+    Finds value betting opportunities for a specific fixture.
+    """
+    try:
+        from football_data.score_data.value_bet_finder import ValueBetFinder
+        
+        finder = ValueBetFinder(bookmaker_name="Bet365")
+        results = finder.find_value_bets_for_fixture(fixture_id)
+        
+        return results
+        
+    except Exception as e:
+        logger.error(f"Error finding value bets for fixture {fixture_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error finding value bets: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
