@@ -3,8 +3,8 @@ import requests
 from datetime import datetime
 from typing import Dict,Any, Optional
 import logging
-from get_data.api_football.endpoints.api_manager import api_manager
-from get_data.api_football.db_mongo import db_manager, MongoDBManager
+from football_data.endpoints.api_manager import api_manager
+from football_data.get_data.api_football.db_mongo import db_manager, MongoDBManager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

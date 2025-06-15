@@ -10,8 +10,8 @@ from pathlib import Path
 project_root = str(Path(__file__).resolve().parent.parent.parent.parent)
 sys.path.insert(0, project_root)
 
-from get_data.api_football.endpoints.api_manager import api_manager
-from get_data.api_football.db_mongo import db_manager
+from football_data.endpoints.api_manager import api_manager
+from football_data.get_data.api_football.db_mongo import db_manager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

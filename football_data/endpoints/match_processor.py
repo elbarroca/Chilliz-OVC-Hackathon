@@ -164,7 +164,10 @@ class MatchProcessor:
         league_id: int,
         season: int,
         home_team_id: int,
-        away_team_id: int
+        away_team_id: int,
+        home_team_name: str,
+        away_team_name: str,
+        match_date: datetime,
     ) -> Dict[str, Optional[Any]]:
         """
         Fetches all required API data points (predictions, stats, standings) for a single match.
@@ -174,6 +177,9 @@ class MatchProcessor:
         assert isinstance(season, int) and season > 1990
         assert isinstance(home_team_id, int) and home_team_id > 0
         assert isinstance(away_team_id, int) and away_team_id > 0
+        assert isinstance(home_team_name, str)
+        assert isinstance(away_team_name, str)
+        assert isinstance(match_date, datetime)
 
         logger.info(f"Fetching API data for Fixture: {fixture_id}, League: {league_id}, Season: {season}")
 
@@ -206,7 +212,10 @@ class MatchProcessor:
         # --- Combine all results ---
         final_results = {
             **api_data, # Unpack API data results
-            "processed_at_utc": datetime.now(timezone.utc) # Add timestamp
+            "processed_at_utc": datetime.now(timezone.utc), # Add timestamp
+            "home_team_name": home_team_name,
+            "away_team_name": away_team_name,
+            "match_date": match_date
         }
 
         return final_results
