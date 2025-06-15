@@ -5,6 +5,7 @@ import os
 import sys
 from pathlib import Path
 import json
+from typing import List, Dict
 
 # Load environment variables from .env file
 try:
@@ -96,9 +97,16 @@ except Exception as e:
     print(f"✗ Failed to import FixtureDetailsFetcher: {e}")
     sys.exit(1)
 
+try:
+    from football_data.endpoints.team_fixtures import TeamFixturesFetcher
+    print("✓ TeamFixturesFetcher imported successfully")
+except Exception as e:
+    print(f"✗ Failed to import TeamFixturesFetcher: {e}")
+    sys.exit(1)
+
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,  # Changed to DEBUG to see more details
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),
@@ -110,12 +118,14 @@ logger = logging.getLogger(__name__)
 print("=== ALL IMPORTS SUCCESSFUL ===")
 
 
-async def run_match_processing_for_fixture(match_processor, fixture_data):
+async def run_match_processing_for_fixture(
+    match_processor: MatchProcessor,
+    fixture_details_fetcher: FixtureDetailsFetcher,
+    team_fixtures_fetcher: TeamFixturesFetcher,
+    fixture_data: Dict
+):
     """
-    Asynchronously processes a single fixture to:
-    1. Fetch and store detailed fixture data (events, stats, lineups).
-    2. Fetch and store processed data (predictions, team stats, standings).
-    3. Fetch and store historical matches for each team.
+    Asynchronously processes a single fixture.
     """
     try:
         fixture_id = int(fixture_data['fixture_id'])
@@ -125,15 +135,21 @@ async def run_match_processing_for_fixture(match_processor, fixture_data):
         home_team_name = fixture_data['home_team']['name']
         away_team_name = fixture_data['away_team']['name']
         match_date = datetime.fromisoformat(fixture_data['match_info']['date'].replace('Z', '+00:00'))
-        season = int(fixture_data['league']['season'])
+        
+        # Determine season from the scraped data, fallback to current year
+        season = fixture_data.get('standings', {}).get('league', {}).get('season')
+        if not isinstance(season, int):
+            season = datetime.now().year if match_date.month < 8 else datetime.now().year -1
 
-        logger.info(f"Processing fixture ID: {fixture_id}")
+        logger.info(f"Processing fixture ID: {fixture_id} (Season: {season})")
 
-        # 1. Fetch and save detailed fixture info
-        fixture_details_fetcher = FixtureDetailsFetcher(db_manager_instance=db_manager)
+        # STEP 1: Enrich the fixture in 'matches' with detailed stats, events, lineups.
+        # This merges data into the document created by the scraper.
+        logger.info(f"Enriching fixture {fixture_id} with detailed data...")
         fixture_details_fetcher.get_fixture_details(fixture_id)
         
-        # 2. Fetch all data for the match from MatchProcessor
+        # STEP 2: Fetch data for processing (predictions, team stats for the season)
+        logger.info(f"Fetching processable API data for fixture {fixture_id}...")
         api_data = await match_processor.fetch_api_data_for_match(
             fixture_id=fixture_id,
             league_id=league_id,
@@ -145,28 +161,80 @@ async def run_match_processing_for_fixture(match_processor, fixture_data):
             match_date=match_date
         )
 
-        if api_data:
-            # 3. Fetch historical matches for both teams
-            logger.info(f"Fetching historical data for fixture {fixture_id}...")
-            home_history = db_manager.get_historical_matches(home_team_id, match_date, limit=15)
-            away_history = db_manager.get_historical_matches(away_team_id, match_date, limit=15)
-            
-            api_data['home_team_history'] = home_history
-            api_data['away_team_history'] = away_history
-            
-            logger.info(f"Found {len(home_history)} historical matches for home team {home_team_id}.")
-            logger.info(f"Found {len(away_history)} historical matches for away team {away_team_id}.")
-            
-            # 4. Save the combined processed data to MongoDB
-            db_manager.save_match_processor_data(fixture_id, api_data)
-            logger.info(f"Successfully processed and saved all data for fixture {fixture_id}.")
-            return fixture_id
-        else:
-            logger.warning(f"No API data returned from MatchProcessor for fixture {fixture_id}.")
+        if not api_data:
+            logger.warning(f"Could not fetch processable data for fixture {fixture_id}. Skipping further processing.")
             return None
+
+        # STEP 3: Backfill historical match data for each team if necessary and add to payload
+        logger.info(f"Checking historical data for fixture {fixture_id}...")
+        
+        home_history = await backfill_team_history(home_team_id, season, match_date, team_fixtures_fetcher, fixture_details_fetcher)
+        away_history = await backfill_team_history(away_team_id, season, match_date, team_fixtures_fetcher, fixture_details_fetcher)
+
+        api_data['home_team_history'] = home_history
+        api_data['away_team_history'] = away_history
+        
+        logger.info(f"Found {len(home_history)} historical matches for home team {home_team_id}.")
+        logger.info(f"Found {len(away_history)} historical matches for away team {away_team_id}.")
+        
+        # STEP 4: Save the combined processed data to the 'match_processor' collection
+        api_data['fixture_id'] = fixture_id  # Ensure fixture_id is in the top level for saving
+        db_manager.save_match_processor_data(api_data)
+        logger.info(f"Successfully processed and saved all data for fixture {fixture_id} to 'match_processor'.")
+        return fixture_id
+        
     except Exception as e:
         logger.error(f"Error processing fixture {fixture_data.get('fixture_id', 'N/A')}: {e}", exc_info=True)
         return None
+
+
+async def backfill_team_history(
+    team_id: int, 
+    season: int, 
+    match_date: datetime,
+    team_fixtures_fetcher: TeamFixturesFetcher, 
+    fixture_details_fetcher: FixtureDetailsFetcher
+) -> List[Dict]:
+    """
+    Checks for a team's historical matches in the DB. If insufficient, fetches
+    fixture lists and their details to backfill the 'matches' collection.
+    Returns the historical match data.
+    """
+    # 1. Attempt to retrieve historical matches from the database first.
+    history = db_manager.get_historical_matches(team_id, match_date, limit=15)
+    
+    # 2. If fewer than 10 matches are found, begin the backfill process.
+    if len(history) < 10:
+        logger.info(f"Insufficient history for team {team_id} ({len(history)} matches found). Backfilling...")
+        
+        # Get the list of all fixture IDs for the team for the given season.
+        # This also saves the list to the 'team_season_fixtures' collection.
+        team_fixture_ids = team_fixtures_fetcher.get_and_save_team_fixtures(team_id, season)
+        
+        if team_fixture_ids:
+            # We only need to check the most recent fixtures that occurred before the current match.
+            # Filter fixtures to those before the match date and take the last 20.
+            relevant_fixtures = [
+                fix for fix in team_fixture_ids 
+                if db_manager.get_match_data(str(fix)) and datetime.fromisoformat(db_manager.get_match_data(str(fix))['match_info']['date'].replace('Z', '+00:00')) < match_date
+            ]
+            fixtures_to_check_ids = relevant_fixtures[-20:]
+
+            # Check which of these fixtures are missing full details in the 'matches' collection.
+            # A simple check for existence is sufficient here. More complex logic could check for specific fields.
+            missing_fixture_ids = [fid for fid in fixtures_to_check_ids if not db_manager.check_match_exists(str(fid))]
+
+            if missing_fixture_ids:
+                logger.info(f"Fetching details for {len(missing_fixture_ids)} missing historical fixtures for team {team_id}.")
+                for fid in missing_fixture_ids:
+                    # Fetch and save details for each missing fixture.
+                    # This is a synchronous call, which may block, but is simple.
+                    fixture_details_fetcher.get_fixture_details(fid)
+            
+            # 3. After backfilling, retrieve the historical matches again to get an updated list.
+            history = db_manager.get_historical_matches(team_id, match_date, limit=15)
+            
+    return history
 
 
 async def main():
@@ -180,7 +248,7 @@ async def main():
     for i in range(2): # Today and tomorrow
         target_date = datetime.now() + timedelta(days=i)
         date_str = target_date.strftime('%Y-%m-%d')
-        logger.info(f"Scraping games for {date_str}")
+        logger.info(f"Scraping games for {date_str} (offset: {i} days)")
         
         # This function saves games to DB and returns the organized data
         scraper.get_games(target_date)
@@ -198,28 +266,46 @@ async def main():
 
     # --- 2. Process Each Match ---
     logger.info("\n--- Step 2: Fetching detailed data for each new fixture ---")
-    match_processor = MatchProcessor()
-    processed_fixture_ids = []
     
-    # Create tasks for all new fixtures
-    tasks = []
+    # Instantiate processors and fetchers once
+    match_processor = MatchProcessor()
+    fixture_details_fetcher = FixtureDetailsFetcher(db_manager_instance=db_manager)
+    team_fixtures_fetcher = TeamFixturesFetcher()
+
+    # Prioritize fixtures from our defined leagues
+    priority_fixtures = []
+    secondary_fixtures = []
+    
     for fixture_id in all_new_fixture_ids:
-        # Fetch the basic match data we stored during scraping
         match_data_from_db = db_manager.get_match_data(str(fixture_id))
         if match_data_from_db:
-             # Add league season for match processor
-            if 'league' not in match_data_from_db:
-                match_data_from_db['league'] = {}
-            if 'season' not in match_data_from_db['league']:
-                 # Find season from standings if available
-                if 'standings' in match_data_from_db and 'league' in match_data_from_db['standings']:
-                     match_data_from_db['league']['season'] = match_data_from_db['standings']['league'].get('season', datetime.now().year)
-                else:
-                    match_data_from_db['league']['season'] = datetime.now().year
-
-            tasks.append(run_match_processing_for_fixture(match_processor, match_data_from_db))
+            league_id = match_data_from_db.get('league_id', '')
+            # Check if this league is in our priority list (from league_id_mappings.py)
+            from football_data.get_data.api_football.league_id_mappings import LEAGUE_ID_MAPPING
+            is_priority = any(info["mongodb_id"] == league_id for info in LEAGUE_ID_MAPPING.values())
+            
+            if is_priority:
+                priority_fixtures.append(match_data_from_db)
+                logger.info(f"Priority fixture: {fixture_id} in league {league_id}")
+            else:
+                secondary_fixtures.append(match_data_from_db)
+                logger.debug(f"Secondary fixture: {fixture_id} in league {league_id}")
         else:
             logger.warning(f"Could not retrieve basic data for fixture {fixture_id} from DB. Skipping.")
+    
+    logger.info(f"Processing {len(priority_fixtures)} priority fixtures and ignoring {len(secondary_fixtures)} secondary fixtures")
+    
+    # Create tasks only for priority fixtures
+    tasks = []
+    for match_data in priority_fixtures:
+        tasks.append(
+            run_match_processing_for_fixture(
+                match_processor, 
+                fixture_details_fetcher, 
+                team_fixtures_fetcher, 
+                match_data
+            )
+        )
 
     # Run all processing tasks concurrently
     results = await asyncio.gather(*tasks)
@@ -245,7 +331,7 @@ async def main():
         
         # This process finds all fixtures for the date, processes them, and saves individual files
         # It returns a summary of what it did.
-        extraction_summary = extractor.extract_games_for_date(date_str)
+        extraction_summary = extractor.extract_games(target_date)
         
         # We need to find the files it created for the fixtures we just processed.
         if "games_processed_summary" in extraction_summary:
@@ -281,6 +367,15 @@ async def main():
             if output_file:
                 prediction_output_files.append(output_file)
                 logger.info(f"  -> Prediction saved to: {output_file}")
+                
+                # Also save prediction results to MongoDB
+                try:
+                    with open(output_file, 'r') as f:
+                        prediction_data = json.load(f)
+                    db_manager.save_prediction_results(prediction_data)
+                    logger.info(f"  -> Prediction data saved to MongoDB for fixture {prediction_data.get('fixture_id', 'N/A')}")
+                except Exception as db_e:
+                    logger.error(f"  -> Error saving prediction to MongoDB: {db_e}")
             else:
                 logger.warning(f"  -> Prediction failed for {file_path}")
         except Exception as e:
@@ -311,13 +406,33 @@ async def main():
     }
 
     try:
-        generate_papers(paper_params)
+        papers_result = generate_papers(paper_params)
         logger.info("Betting paper generation complete.")
+        
+        # Save betting papers to MongoDB
+        if papers_result:
+            try:
+                db_manager.save_betting_papers(papers_result)
+                logger.info("Betting papers saved to MongoDB.")
+            except Exception as db_e:
+                logger.error(f"Error saving betting papers to MongoDB: {db_e}")
     except Exception as e:
         logger.error(f"Failed to generate betting papers: {e}", exc_info=True)
 
     logger.info("\n--- Step 6: Transforming data for frontend ---")
     transform_and_load_for_frontend(prediction_output_files)
+
+    logger.info("\n--- Step 7: Pipeline Status Check ---")
+    try:
+        status = db_manager.get_pipeline_status()
+        logger.info("Pipeline Status Summary:")
+        for collection_name, collection_status in status["collections"].items():
+            if "error" in collection_status:
+                logger.warning(f"  {collection_name}: ERROR - {collection_status['error']}")
+            else:
+                logger.info(f"  {collection_name}: {collection_status['document_count']} documents, last update: {collection_status.get('latest_update', 'N/A')}")
+    except Exception as e:
+        logger.error(f"Error getting pipeline status: {e}")
 
     logger.info("\n--- Pipeline Finished ---")
 

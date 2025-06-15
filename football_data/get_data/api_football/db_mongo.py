@@ -368,81 +368,57 @@ class MongoDBManager:
         return count > 0
 
     def save_daily_games(self, date_str: str, daily_payload: Dict[str, Any]) -> bool:
-        assert self._initialized and self._daily_games_collection is not None, "DB not initialized or daily_games collection missing"
-        assert isinstance(date_str, str) and len(date_str) == 10, "Date string must be in YYYY-MM-DD format"
-        assert isinstance(daily_payload, dict), "Payload must be a dictionary"
-
-        doc_to_save = daily_payload.copy()
-        doc_to_save['date'] = date_str
-        doc_to_save['_id'] = date_str
-        doc_to_save['last_updated_utc'] = datetime.now(timezone.utc)
-
+        """
+        Saves or updates the daily games summary.
+        The document ID is the date string in 'YYYY-MM-DD' format.
+        """
+        assert self._initialized and self._daily_games_collection is not None, "DB not initialized"
+        assert isinstance(date_str, str) and len(date_str) == 10, "date_str must be 'YYYY-MM-DD'"
+        
         try:
-            result = self._daily_games_collection.replace_one(
-                {'_id': date_str},
-                doc_to_save,
+            # Use update_one with upsert=True to either insert a new document or update an existing one.
+            self._daily_games_collection.update_one(
+                {"_id": date_str},
+                {"$set": daily_payload},
                 upsert=True
             )
-            op_type = "replaced" if result.matched_count > 0 else "inserted"
-            if result.upserted_id: op_type = "inserted"
-            logger.info(f"Daily games for {date_str} {op_type} in 'daily_games'. Matched: {result.matched_count}, Modified: {result.modified_count}, Upserted ID: {result.upserted_id}")
+            # logger.debug(f"Successfully saved/updated daily games for {date_str}")
             return True
-        except OperationFailure as op_fail:
-            logger.error(f"MongoDB operation failure saving daily games for {date_str}: {op_fail.details}", exc_info=True)
+        except Exception as e:
+            logger.error(f"Error saving daily games for {date_str}: {e}", exc_info=True)
             return False
 
     def get_daily_games(self, date_str: str) -> Optional[Dict[str, Any]]:
-        assert self._initialized and self._daily_games_collection is not None, "DB not initialized or daily_games collection missing"
-        assert isinstance(date_str, str) and len(date_str) == 10, "Date string must be in YYYY-MM-DD format"
-
-        return self._daily_games_collection.find_one({'_id': date_str})
+        assert self._initialized and self._daily_games_collection is not None, "DB not initialized"
+        return self._daily_games_collection.find_one({"_id": date_str})
 
     def save_match_data(self, match_data: Dict[str, Any]) -> bool:
-        assert self._initialized and self._matches_collection is not None, "DB not initialized or matches collection missing"
-        assert isinstance(match_data, dict), "match_data must be a dictionary"
-
-        fixture_id = match_data.get("fixture_id") or match_data.get("_id")
-        if not fixture_id and 'basic_info' in match_data:
-            try:
-                fixture_id = match_data['basic_info'][0]['fixture']['id']
-                restructured_data = {
-                    "_id": str(fixture_id),
-                    "fixture_id": str(fixture_id),
-                    "fixture_details_raw": match_data,
-                    "last_updated_utc": datetime.now(timezone.utc)
-                }
-                match_data_to_save = restructured_data
-                logger.debug(f"Restructured data from FixtureDetailsFetcher for saving fixture {fixture_id}")
-            except (IndexError, KeyError, TypeError) as e:
-                logger.error(f"Could not extract fixture_id from FixtureDetailsFetcher structure: {e}")
-                assert False, "Match data structure from FixtureDetailsFetcher unrecognized or missing fixture ID."
-        elif fixture_id:
-            fixture_id = str(fixture_id)
-            match_data_to_save = match_data.copy()
-            match_data_to_save["_id"] = fixture_id
-            match_data_to_save["last_updated_utc"] = datetime.now(timezone.utc)
-        else:
-            assert False, "Match data must contain 'fixture_id', '_id', or be structured like FixtureDetailsFetcher output."
-
+        """
+        Saves or merges detailed match data into the 'matches' collection.
+        It uses the '_id' field from the match_data dictionary for the update.
+        This performs a deep merge of the provided data.
+        """
+        assert self._initialized and self._matches_collection is not None, "DB not initialized"
+        
+        if "_id" not in match_data:
+            logger.error("Error saving match data: '_id' (fixture_id as string) is missing from the payload.")
+            return False
+            
+        fixture_id = match_data["_id"]
+        
         try:
-            result = self._matches_collection.update_one(
+            # Using update_one with $set will merge the new data with existing data.
+            update_payload = {f"{k}": v for k, v in match_data.items() if k != "_id"}
+
+            self._matches_collection.update_one(
                 {"_id": fixture_id},
-                {"$set": match_data_to_save},
+                {"$set": update_payload},
                 upsert=True
             )
-            op_type = "updated" if result.matched_count > 0 else "inserted"
-            if result.upserted_id: op_type = "inserted"
-            log_id_info = f"fixture ID {fixture_id}"
-            if 'fixture_details_raw' in match_data_to_save:
-                log_id_info += " (raw details structure)"
-
-            logger.info(f"Successfully {op_type} match data for {log_id_info}. Matched: {result.matched_count}, Modified: {result.modified_count}, Upserted ID: {result.upserted_id}")
+            # logger.debug(f"Successfully saved/merged match data for fixture {fixture_id}")
             return True
-        except OperationFailure as op_fail:
-            logger.error(f"MongoDB operation failure saving match data for {fixture_id}: {op_fail.details}", exc_info=True)
-            return False
         except Exception as e:
-            logger.error(f"Unexpected error saving match data for {fixture_id}: {e}", exc_info=True)
+            logger.error(f"Error saving match data for fixture {fixture_id}: {e}", exc_info=True)
             return False
 
     def check_match_exists(self, fixture_id: str) -> bool:
@@ -490,27 +466,26 @@ class MongoDBManager:
         return self._odds_collection.find_one({'_id': fixture_id})
 
     def save_standings_data(self, date_str: str, league_id: str, season: int, standings_payload: Dict[str, Any]) -> bool:
-        assert self._initialized and self._standings_collection is not None, "DB not initialized or standings collection missing"
-        assert isinstance(date_str, str) and len(date_str) == 10, "Date string must be in YYYY-MM-DD format"
-        assert isinstance(league_id, str) and league_id, "League ID must be a non-empty string"
-        assert isinstance(season, int) and season > 1900, "Season must be a valid year integer"
-        assert isinstance(standings_payload, dict), "standings_payload must be a dictionary"
-
-        standings_to_save = standings_payload.copy()
-        standings_to_save['league_id'] = league_id
-        standings_to_save['season'] = season
-        standings_to_save['date_retrieved_str'] = date_str
-        standings_to_save['saved_at_utc'] = datetime.now(timezone.utc)
-
+        """Saves or updates a snapshot of league standings for a specific date."""
+        assert self._initialized and self._standings_collection is not None, "DB not initialized"
+        
+        # Add retrieval metadata
+        standings_payload["date_retrieved_str"] = date_str
+        standings_payload["league_id"] = league_id
+        standings_payload["season"] = season
+        
         try:
-            result = self._standings_collection.insert_one(standings_to_save)
-            logger.info(f"Successfully inserted standings data for League {league_id}, Season {season}, Date {date_str}. Inserted ID: {result.inserted_id}")
+            # Use a composite key for standings to allow multiple snapshots over time
+            doc_id = f"{league_id}_{season}_{date_str}"
+            self._standings_collection.update_one(
+                {"_id": doc_id},
+                {"$set": standings_payload},
+                upsert=True
+            )
+            # logger.debug(f"Successfully saved standings for league {league_id} on {date_str}")
             return True
-        except OperationFailure as op_fail:
-            logger.error(f"MongoDB operation failure saving standings for League {league_id}, Season {season}, Date {date_str}: {op_fail.details}", exc_info=True)
-            return False
         except Exception as e:
-            logger.error(f"Unexpected error saving standings for League {league_id}, Season {season}, Date {date_str}: {e}", exc_info=True)
+            logger.error(f"Error saving standings for league {league_id} on {date_str}: {e}", exc_info=True)
             return False
 
     def get_latest_standings(self, league_id: str, season: int, before_date_str: Optional[str] = None) -> Optional[Dict[str, Any]]:
@@ -580,31 +555,30 @@ class MongoDBManager:
         return True
 
     def save_match_processor_data(self, processor_data: Dict[str, Any]) -> bool:
-        assert self._initialized and self._match_processor_collection is not None, "DB not initialized or match_processor collection missing"
-        assert isinstance(processor_data, dict), "processor_data must be a dictionary"
-        fixture_id = processor_data.get("fixture_id")
-        assert fixture_id, "Processor data must contain 'fixture_id'"
-        fixture_id = str(fixture_id)
-
-        processor_data_to_save = processor_data.copy()
-        processor_data_to_save["_id"] = fixture_id
-        processor_data_to_save["last_updated_utc"] = datetime.now(timezone.utc)
-
+        """
+        Saves or merges data from the MatchProcessor into the 'match_processor' collection.
+        The document ID is the 'fixture_id'.
+        """
+        assert self._initialized and self._match_processor_collection is not None, "DB not initialized"
+        
+        if "fixture_id" not in processor_data:
+            logger.error("Error saving match processor data: 'fixture_id' is missing.")
+            return False
+            
+        fixture_id = str(processor_data["fixture_id"])
+        
         try:
-            result = self._match_processor_collection.update_one(
+            update_payload = {f"{k}": v for k, v in processor_data.items() if k != "fixture_id"}
+            
+            self._match_processor_collection.update_one(
                 {"_id": fixture_id},
-                {"$set": processor_data_to_save},
+                {"$set": update_payload},
                 upsert=True
             )
-            op_type = "updated" if result.matched_count > 0 else "inserted"
-            if result.upserted_id: op_type = "inserted"
-            logger.info(f"Successfully {op_type} match processor data for fixture ID {fixture_id}. Matched: {result.matched_count}, Modified: {result.modified_count}, Upserted ID: {result.upserted_id}")
+            # logger.debug(f"Successfully saved match processor data for fixture {fixture_id}")
             return True
-        except OperationFailure as op_fail:
-            logger.error(f"MongoDB operation failure saving match processor data for {fixture_id}: {op_fail.details}", exc_info=True)
-            return False
         except Exception as e:
-            logger.error(f"Unexpected error saving match processor data for {fixture_id}: {e}", exc_info=True)
+            logger.error(f"Error saving match processor data for {fixture_id}: {e}", exc_info=True)
             return False
 
     def check_match_processor_data_exists(self, fixture_id: str) -> bool:
@@ -679,5 +653,287 @@ class MongoDBManager:
         logger.debug(f"Fetching data from match_processor collection for fixture_id: {fixture_id}")
         return self._match_processor_collection.find_one({"_id": fixture_id})
 
+    def get_match_fixture_ids_for_date(self, date_str: str) -> List[int]:
+        """
+        Get all fixture IDs for matches on a specific date from daily_games collection.
+        """
+        assert self._initialized and self._daily_games_collection is not None, "DB not initialized or daily_games collection missing"
+        assert isinstance(date_str, str) and len(date_str) == 10, "Date string must be in YYYY-MM-DD format"
+        
+        logger.info(f"Fetching fixture IDs for date: {date_str}")
+        
+        daily_games_doc = self._daily_games_collection.find_one({"_id": date_str})
+        if not daily_games_doc:
+            logger.warning(f"No daily games document found for date {date_str}")
+            return []
+        
+        fixture_ids: Set[int] = set()
+        leagues_dict = daily_games_doc.get("leagues", {})
+        
+        if not isinstance(leagues_dict, dict):
+            logger.warning(f"Invalid leagues data structure in daily games for {date_str}")
+            return []
+        
+        for league_data in leagues_dict.values():
+            if not isinstance(league_data, dict):
+                continue
+            matches_list = league_data.get("matches", [])
+            if not isinstance(matches_list, list):
+                continue
+            for match in matches_list:
+                if not isinstance(match, dict):
+                    continue
+                fixture_id = match.get("id")
+                if fixture_id is not None:
+                    try:
+                        fixture_ids.add(int(fixture_id))
+                    except (ValueError, TypeError):
+                        logger.warning(f"Could not convert fixture ID '{fixture_id}' to int for date {date_str}")
+        
+        logger.info(f"Found {len(fixture_ids)} fixture IDs for date {date_str}")
+        return sorted(list(fixture_ids))
 
-db_manager = MongoDBManager(db_name="agenticfc")
+    def save_matches_for_frontend(self, matches_to_load: List[Dict[str, Any]]) -> bool:
+        """
+        Save transformed match data for frontend consumption.
+        Uses bulk operations for efficiency.
+        """
+        assert self._initialized and self._matches_collection is not None, "DB not initialized or matches collection missing"
+        assert isinstance(matches_to_load, list), "matches_to_load must be a list of dictionaries"
+        
+        if not matches_to_load:
+            logger.info("No matches provided for frontend save.")
+            return True
+        
+        operations = []
+        current_time = datetime.now(timezone.utc)
+        processed_ids: Set[str] = set()
+        skipped_duplicates = 0
+        
+        for match_data in matches_to_load:
+            assert isinstance(match_data, dict), "Each match must be a dictionary"
+            match_id = match_data.get("_id") or match_data.get("matchId")
+            assert match_id, "Match data must contain '_id' or 'matchId'"
+            
+            doc_id = str(match_id)
+            
+            if doc_id in processed_ids:
+                logger.warning(f"Duplicate match ID '{doc_id}' found in frontend data. Skipping.")
+                skipped_duplicates += 1
+                continue
+            processed_ids.add(doc_id)
+            
+            match_data_to_save = match_data.copy()
+            match_data_to_save["_id"] = doc_id
+            match_data_to_save["frontend_updated_utc"] = current_time
+            match_data_to_save["data_source"] = "pipeline_frontend_transform"
+            
+            operations.append(
+                UpdateOne({"_id": doc_id}, {"$set": match_data_to_save}, upsert=True)
+            )
+        
+        if not operations:
+            logger.info(f"No valid operations for frontend matches save (duplicates skipped: {skipped_duplicates})")
+            return True
+        
+        logger.info(f"Executing bulk write for {len(operations)} frontend match documents...")
+        try:
+            result = self._matches_collection.bulk_write(operations, ordered=False)
+            logger.info(
+                f"Bulk frontend matches write complete. "
+                f"Inserted: {result.upserted_count}, Updated: {result.modified_count}, "
+                f"Matched: {result.matched_count}. "
+                f"(Duplicates skipped: {skipped_duplicates})"
+            )
+            return True
+        except BulkWriteError as bwe:
+            logger.error(f"Bulk write error saving frontend matches: {bwe.details}", exc_info=True)
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error saving frontend matches: {e}", exc_info=True)
+            return False
+
+    def save_prediction_results(self, prediction_data: Dict[str, Any]) -> bool:
+        """
+        Save prediction results to a dedicated collection for tracking.
+        """
+        assert self._initialized and self._db is not None, "DB not initialized"
+        assert isinstance(prediction_data, dict), "prediction_data must be a dictionary"
+        
+        fixture_id = prediction_data.get("fixture_id")
+        assert fixture_id, "Prediction data must contain 'fixture_id'"
+        
+        # Create predictions collection if it doesn't exist
+        if not hasattr(self, '_predictions_collection') or self._predictions_collection is None:
+            self._predictions_collection = self._db['predictions']
+        
+        doc_id = str(fixture_id)
+        prediction_data_to_save = prediction_data.copy()
+        prediction_data_to_save["_id"] = doc_id
+        prediction_data_to_save["prediction_timestamp_utc"] = datetime.now(timezone.utc)
+        
+        try:
+            result = self._predictions_collection.update_one(
+                {"_id": doc_id},
+                {"$set": prediction_data_to_save},
+                upsert=True
+            )
+            op_type = "updated" if result.matched_count > 0 else "inserted"
+            if result.upserted_id: op_type = "inserted"
+            logger.info(f"Successfully {op_type} prediction data for fixture ID {fixture_id}. Matched: {result.matched_count}, Modified: {result.modified_count}, Upserted ID: {result.upserted_id}")
+            return True
+        except OperationFailure as op_fail:
+            logger.error(f"MongoDB operation failure saving prediction data for {fixture_id}: {op_fail.details}", exc_info=True)
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error saving prediction data for {fixture_id}: {e}", exc_info=True)
+            return False
+
+    def get_matches_by_date_range(self, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+        """
+        Get all matches within a date range.
+        """
+        assert self._initialized and self._matches_collection is not None, "DB not initialized or matches collection missing"
+        assert isinstance(start_date, str) and len(start_date) == 10, "start_date must be in YYYY-MM-DD format"
+        assert isinstance(end_date, str) and len(end_date) == 10, "end_date must be in YYYY-MM-DD format"
+        
+        query = {
+            "date_str": {
+                "$gte": start_date,
+                "$lte": end_date
+            }
+        }
+        
+        cursor = self._matches_collection.find(query).sort("date_str", 1)
+        matches = list(cursor)
+        logger.info(f"Found {len(matches)} matches between {start_date} and {end_date}")
+        return matches
+
+    def save_betting_papers(self, papers_data: Dict[str, Any]) -> bool:
+        """
+        Save generated betting papers to MongoDB.
+        """
+        assert self._initialized and self._db is not None, "DB not initialized"
+        assert isinstance(papers_data, dict), "papers_data must be a dictionary"
+        
+        # Create betting_papers collection if it doesn't exist
+        if not hasattr(self, '_betting_papers_collection') or self._betting_papers_collection is None:
+            self._betting_papers_collection = self._db['betting_papers']
+        
+        # Use current date as document ID
+        doc_id = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        papers_data_to_save = papers_data.copy()
+        papers_data_to_save["_id"] = doc_id
+        papers_data_to_save["generated_at_utc"] = datetime.now(timezone.utc)
+        
+        try:
+            result = self._betting_papers_collection.update_one(
+                {"_id": doc_id},
+                {"$set": papers_data_to_save},
+                upsert=True
+            )
+            op_type = "updated" if result.matched_count > 0 else "inserted"
+            if result.upserted_id: op_type = "inserted"
+            logger.info(f"Successfully {op_type} betting papers for {doc_id}. Matched: {result.matched_count}, Modified: {result.modified_count}, Upserted ID: {result.upserted_id}")
+            return True
+        except OperationFailure as op_fail:
+            logger.error(f"MongoDB operation failure saving betting papers for {doc_id}: {op_fail.details}", exc_info=True)
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error saving betting papers for {doc_id}: {e}", exc_info=True)
+            return False
+
+    def get_pipeline_status(self) -> Dict[str, Any]:
+        """
+        Get status information about the pipeline data in MongoDB.
+        """
+        assert self._initialized, "DB not initialized"
+        
+        status = {
+            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "collections": {}
+        }
+        
+        # Check each collection
+        collections_to_check = [
+            ("matches", self._matches_collection),
+            ("daily_games", self._daily_games_collection),
+            ("match_processor", self._match_processor_collection),
+            ("ml_ready", self._ml_ready_collection),
+            ("odds", self._odds_collection),
+            ("standings", self._standings_collection),
+            ("statarea_stats", self._statarea_collection)
+        ]
+        
+        for name, collection in collections_to_check:
+            if collection is not None:
+                try:
+                    count = collection.count_documents({})
+                    # Get latest document timestamp if available
+                    latest_doc = collection.find_one(
+                        {}, 
+                        sort=[("last_updated_utc", -1), ("_id", -1)]
+                    )
+                    latest_update = None
+                    if latest_doc:
+                        for timestamp_field in ["last_updated_utc", "processing_timestamp_utc", "saved_at_utc", "scrape_date_utc"]:
+                            if timestamp_field in latest_doc and isinstance(latest_doc[timestamp_field], datetime):
+                                latest_update = latest_doc[timestamp_field].isoformat()
+                                break
+                    
+                    status["collections"][name] = {
+                        "document_count": count,
+                        "latest_update": latest_update
+                    }
+                except Exception as e:
+                    status["collections"][name] = {
+                        "error": str(e)
+                    }
+            else:
+                status["collections"][name] = {
+                    "error": "Collection not initialized"
+                }
+        
+        return status
+
+    def save_team_season_fixture_list(self, team_id: int, season: int, fixture_ids: List[int]) -> bool:
+        """
+        Saves or updates the list of fixture IDs for a team's season.
+        """
+        assert self._initialized and self._team_fixtures_collection is not None, "DB not initialized"
+
+        try:
+            doc_id = f"{team_id}_{season}"
+            payload = {
+                "team_id": team_id,
+                "season": season,
+                "fixture_ids": fixture_ids,
+                "last_updated_utc": datetime.now(timezone.utc)
+            }
+            self._team_fixtures_collection.update_one(
+                {"_id": doc_id},
+                {"$set": payload},
+                upsert=True
+            )
+            # logger.debug(f"Successfully saved fixture list for team {team_id}, season {season}")
+            return True
+        except Exception as e:
+            logger.error(f"Error saving team fixture list for {team_id}: {e}", exc_info=True)
+            return False
+
+    def get_team_season_fixture_list(self, team_id: int, season: int) -> Optional[List[int]]:
+        """
+        Get the list of fixture IDs for a specific team and season.
+        """
+        assert self._initialized and self._team_fixtures_collection is not None, "DB not initialized"
+        assert isinstance(team_id, int), "team_id must be an integer"
+        assert isinstance(season, int), "season must be an integer"
+        
+        doc_id = f"{team_id}_{season}"
+        document = self._team_fixtures_collection.find_one({"_id": doc_id})
+        
+        if document:
+            return document.get("fixture_ids")
+        return None
+
+db_manager = MongoDBManager(db_name=os.getenv("MONGO_DB_NAME", "Alpha"))

@@ -12,6 +12,7 @@ sys.path.insert(0, project_root)
 
 from football_data.endpoints.api_manager import api_manager
 from football_data.get_data.api_football.db_mongo import db_manager
+from football_data.get_data.api_football.league_id_mappings import LEAGUE_ID_MAPPING
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -29,66 +30,35 @@ class GameScraper:
         if not api_key:
             logger.warning("API_FOOTBALL_KEY environment variable not set, using API manager")
             
-        # All available leagues configuration
-        self.all_leagues = {
-           
-            # Top 5 Leagues
-             "39": {"name": "Premier League", "tier": 1, "country": "England"},          # England's top division
-             "135": {"name": "Serie A", "tier": 1, "country": "Italy"},                 # Italy's top division
-             "78": {"name": "Bundesliga", "tier": 1, "country": "Germany"},             # Germany's top division
-             "61": {"name": "Ligue 1", "tier": 1, "country": "France"},                 # France's top division
-             "140": {"name": "La Liga", "tier": 1, "country": "Spain"},                 # Spain's top division
+        # Load leagues from the mapping file and convert to the format expected by the scraper
+        self.all_leagues = {}
+        
+        # Convert LEAGUE_ID_MAPPING to the format expected by the scraper
+        for league_name, league_info in LEAGUE_ID_MAPPING.items():
+            league_id = league_info["mongodb_id"]
             
-            # Secondary Leagues
-             "40": {"name": "Championship", "tier": 2, "country": "England"},           # England's second division
-             "136": {"name": "Serie B", "tier": 2, "country": "Italy"},                # Italy's second division
-             "79": {"name": "2. Bundesliga", "tier": 2, "country": "Germany"},         # Germany's second division
-             "62": {"name": "Ligue 2", "tier": 2, "country": "France"},                # France's second division
-             "141": {"name": "Segunda División", "tier": 2, "country": "Spain"},        # Spain's second division
+            # Extract country from league name (format: "League Name (Country)")
+            if "(" in league_name and ")" in league_name:
+                name_part = league_name.split("(")[0].strip()
+                country_part = league_name.split("(")[1].split(")")[0].strip()
+            else:
+                name_part = league_name
+                country_part = "Unknown"
             
-            # Other Major European Leagues
-             "88": {"name": "Eredivisie", "tier": 1, "country": "Netherlands"},        # Netherlands' top division
-             "95": {"name": "Segunda Liga", "tier": 2, "country": "Portugal"},         # Portugal's second division
-             "203": {"name": "Super Lig", "tier": 1, "country": "Turkey"},            # Turkey's top division
-             "179": {"name": "Premiership", "tier": 1, "country": "Scotland"},        # Scotland's top division
-             "144": {"name": "Jupiler Pro League", "tier": 1, "country": "Belgium"},  # Belgium's top division
-             "89": {"name": "Eredivisie 2", "tier": 2, "country": "Netherlands"},     # Netherlands' second division
-             "94": {"name": "Primeira Liga", "tier": 1, "country": "Portugal"},       # Portugal's top division
-             "106": {"name": "Ekstraklasa", "tier": 1, "country": "Poland"},         # Poland's Ekstraklasa league
-             "210": {"name": "HNL", "tier": 1, "country": "Croatia"},                # Croatia's HNL league
-             "218": {"name": "Austria Bundesliga", "tier": 1, "country": "Austria"}, # Austria's top division
-             "207": {"name": "Super League", "tier": 1, "country": "Switzerland"},   # Switzerland's top division
+            # Determine tier based on league name
+            tier = 1  # Default to tier 1
+            if any(keyword in name_part.lower() for keyword in ["2.", "segunda", "championship", "serie b", "ligue 2", "segunda liga", "eredivisie 2"]):
+                tier = 2
+            elif any(keyword in name_part.lower() for keyword in ["cup", "conference", "qualification", "friendlies"]):
+                tier = 3
             
-            # Nordic Leagues
-             "113": {"name": "Allsvenskan", "tier": 1, "country": "Sweden"},         # Sweden's top division
-             "103": {"name": "Eliteserien", "tier": 1, "country": "Norway"},         # Norway's top division
-             "119": {"name": "Superliga", "tier": 1, "country": "Denmark"},          # Denmark's top division
-            
-            # Eastern European Leagues
-             "283": {"name": "Liga 1", "tier": 1, "country": "Romania"},             # Romania's top division
-             #"392": {"name": "First League", "tier": 1, "country": "Montenegro"},    # Montenegro's top division
-             #"364": {"name": "A Lyga", "tier": 1, "country": "Lithuania"},           # Lithuania's top division
-             "333": {"name": "Premier League", "tier": 1, "country": "Ukraine"},     # Ukraine's top division
-             "345": {"name": "Czech Liga", "tier": 1, "country": "Czech Republic"},  # Czech Republic's top division
-             "197": {"name": "Grecian Football League", "tier": 1, "country": "Greece"},# Greece's top division
-             "286": {"name": "SuperLiga", "tier": 1, "country": "Serbia"},          # Serbia's top division
-             "318": {"name": "1. Division", "tier": 1, "country": "Cyprus"},        # Cyprus' top division
-             "271": {"name": "NB I", "tier": 1, "country": "Hungary"},             # Hungary's top division
-                         
-            # European Competitions
-             "2": {"name": "UEFA Champions League", "tier": 1, "country": "Europe"},         # Europe's premier club competition
-             "3": {"name": "UEFA Europa League", "tier": 1, "country": "Europe"},            # Europe's secondary club competition
-             "848": {"name": "UEFA Europa Conference League", "tier": 1, "country": "Europe"}, # Europe's tertiary club competition
-            # International Competitions
-            "1186": {"name": "FIFA Club World Cup - Play-In", "tier": 1, "country": "World"},
-            "850": {"name": "UEFA U21 Championship - Qualification", "tier": 1, "country": "World"},
-            "36": {"name": "Africa Cup of Nations - Qualification", "tier": 1, "country": "World"},
-            "38": {"name": "UEFA U21 Championship", "tier": 1, "country": "World"},
-            "15": {"name": "FIFA Club World Cup", "tier": 1, "country": "World"},
-            "16": {"name": "CONCACAF Champions League", "tier": 1, "country": "World"},
-            "667": {"name": "Friendlies Clubs", "tier": 1, "country": "World"},
-            "531": {"name": "UEFA Super Cup", "tier": 1, "country": "World"},
-        }
+            self.all_leagues[league_id] = {
+                "name": name_part,
+                "tier": tier,
+                "country": country_part
+            }
+        
+        logger.info(f"Loaded {len(self.all_leagues)} leagues from league_id_mappings.py")
         
        
         
@@ -145,21 +115,22 @@ class GameScraper:
         away_team = match.get("teams", {}).get("away", {}).get("name", "").lower()
         league = match.get("league", {})
         league_id = str(league.get("id", ""))
-        
-        # Get active leagues for the match date
-        match_date = datetime.strptime(match["fixture"]["date"].split("T")[0], '%Y-%m-%d')
-        active_leagues = self.get_active_leagues_for_date(match_date)
-        
-        # Check if league is in active leagues
-        if league_id not in active_leagues:
-            return False
+        league_name = league.get("name", "")
         
         # Check for excluded terms in team names
         for term in self.excluded_terms:
             if term in home_team or term in away_team:
+                logger.debug(f"Match excluded due to team name filter: {home_team} vs {away_team} (term: {term})")
                 return False
         
-        return True
+        # Only accept leagues from our mapping
+        if league_id in self.all_leagues:
+            logger.debug(f"Match accepted (priority league): {home_team} vs {away_team} in {league_name} (ID: {league_id})")
+            return True
+        else:
+            # Exclude leagues not in our mapping
+            logger.debug(f"Match excluded (league not in mapping): {home_team} vs {away_team} in {league_name} (ID: {league_id})")
+            return False
 
     def _fetch_standings(self, league_id: str, season: int, date_str: str) -> Dict:
         """Fetch standings for a specific league and season."""
@@ -233,16 +204,22 @@ class GameScraper:
             
             # Determine the correct season based on the date
             # Football seasons typically run from August to May/July
-            # So for dates in 2025, we should use season 2025 until around July/August
+            # For 2025 dates, we should use season 2024 (Aug 2024 - July 2025) or 2025 (Aug 2025 onwards)
             current_year = date.year
             current_month = date.month
             
-            # If we're in the first half of the year (Jan-July), use previous year as season
-            # If we're in the second half (Aug-Dec), use current year as season
-            if current_month <= 7:
-                season = current_year - 1
+            # For 2025, we need to handle the transition properly
+            if current_year == 2025:
+                if current_month <= 7:  # Jan-July 2025 = 2024-25 season
+                    season = 2024
+                else:  # Aug-Dec 2025 = 2025-26 season
+                    season = 2025
             else:
-                season = current_year
+                # Standard logic for other years
+                if current_month <= 7:
+                    season = current_year - 1
+                else:
+                    season = current_year
             
             # Fetch all matches for the date
             response = self._make_api_request(
@@ -262,15 +239,37 @@ class GameScraper:
             
             # Process matches
             filtered_count = 0
+            total_processed = 0
             standings_cache = {}  # Cache standings to avoid duplicate API calls
             
             for match in matches:
+                total_processed += 1
                 if not self._is_valid_match(match):
+                    # Log why match was filtered out for debugging
+                    league_id = str(match.get("league", {}).get("id", ""))
+                    home_team = match.get("teams", {}).get("home", {}).get("name", "")
+                    away_team = match.get("teams", {}).get("away", {}).get("name", "")
+                    logger.debug(f"Filtered out match: {home_team} vs {away_team} (League ID: {league_id})")
                     continue
                 
                 league = match["league"]
                 league_id = str(league["id"])
-                league_info = self.get_active_leagues_for_date(date)[league_id]
+                
+                # Try to get league info from our predefined list
+                active_leagues = self.get_active_leagues_for_date(date)
+                if league_id in active_leagues:
+                    league_info = active_leagues[league_id]
+                else:
+                    # If league not in our list, create basic info from match data
+                    logger.info(f"League {league_id} ({league['name']}) not in predefined list, adding dynamically")
+                    league_info = {
+                        "id": int(league_id),
+                        "name": league["name"],
+                        "country": league.get("country", "Unknown"),
+                        "tier": 3,  # Default tier for unknown leagues
+                        "season": season
+                    }
+                
                 league_name = f"{league_info['name']} ({league_info['country']})"
                 
                 # Initialize league data if not exists
@@ -350,6 +349,7 @@ class GameScraper:
                 db_manager.save_match_data(detailed_match)
             
             # Print summary
+            logger.info(f"Processed {total_processed} total matches, {filtered_count} passed filters, {total_processed - filtered_count} filtered out")
             if organized_data["total_matches"] > 0:
                 logger.info(f"Found {filtered_count} meaningful matches in {len(organized_data['leagues'])} leagues")
                 for league_id, league_data in organized_data["leagues"].items():
@@ -357,17 +357,16 @@ class GameScraper:
             else:
                 logger.warning(f"No meaningful matches found for date {api_date}")
             
-            # Save daily games summary to MongoDB
-            if organized_data["total_matches"] > 0:
-                logger.info(f"Saving {api_date} games data to MongoDB...")
-                try:
-                    success = db_manager.save_daily_games(api_date, organized_data)
-                    if success:
-                        logger.info(f"Daily games data for {api_date} saved successfully to MongoDB")
-                    else:
-                        logger.error(f"Failed to save daily games data for {api_date} to MongoDB")
-                except Exception as db_e:
-                    logger.error(f"Error saving games data to MongoDB: {db_e}")
+            # Always save daily games summary to MongoDB (even if no matches found)
+            logger.info(f"Saving {api_date} games data to MongoDB (total matches: {organized_data['total_matches']})...")
+            try:
+                success = db_manager.save_daily_games(api_date, organized_data)
+                if success:
+                    logger.info(f"Daily games data for {api_date} saved successfully to MongoDB")
+                else:
+                    logger.error(f"Failed to save daily games data for {api_date} to MongoDB")
+            except Exception as db_e:
+                logger.error(f"Error saving games data to MongoDB: {db_e}")
             
             return organized_data
             

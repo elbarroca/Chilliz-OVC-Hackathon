@@ -188,7 +188,6 @@ class MatchProcessor:
             "predictions": self.fetch_predictions(fixture_id),
             "home_stats": self.fetch_team_statistics(home_team_id, league_id, season),
             "away_stats": self.fetch_team_statistics(away_team_id, league_id, season),
-            "standings": self.fetch_standings(league_id, season)
         }
         api_results_list = await asyncio.gather(*tasks.values(), return_exceptions=True)
 
@@ -207,7 +206,6 @@ class MatchProcessor:
         if api_data.get("predictions") is None: logger.warning(f"API call for predictions failed or returned no data for fixture {fixture_id}")
         if api_data.get("home_stats") is None: logger.warning(f"API call for home stats failed or returned no data for fixture {fixture_id}, team {home_team_id}")
         if api_data.get("away_stats") is None: logger.warning(f"API call for away stats failed or returned no data for fixture {fixture_id}, team {away_team_id}")
-        if api_data.get("standings") is None: logger.warning(f"API call for standings failed or returned no data for fixture {fixture_id}, league {league_id}")
 
         # --- Combine all results ---
         final_results = {

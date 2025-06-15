@@ -87,6 +87,7 @@ class FixtureDetailsFetcher:
             
             # Combine all data
             complete_data = {
+                '_id': str(fixture_id),
                 'basic_info': basic_info.get('response', []),
                 'statistics': statistics.get('response', []),
                 'events': events.get('response', []),
@@ -94,7 +95,7 @@ class FixtureDetailsFetcher:
                 'last_updated': datetime.utcnow().isoformat()
             }
             
-            # Save to database using SQLite's save_fixture_detail method
+            # Save to database using the db_manager's save_match_data method
             success = self.db_manager.save_match_data(complete_data)
             if success:
                 logger.info(f"Successfully saved details for fixture {fixture_id}")
