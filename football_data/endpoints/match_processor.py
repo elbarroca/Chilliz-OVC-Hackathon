@@ -13,12 +13,11 @@ logger = logging.getLogger(__name__)
 project_root = str(Path(__file__).resolve().parent.parent.parent.parent)
 sys.path.insert(0, project_root)
 
-# Assuming api_manager and elo_fetcher are correctly set up and importable
+# Import api_manager only
 try:
     from .api_manager import api_manager
-    from .elo_fetcher import elo_fetcher # Import elo_fetcher instance
 except ImportError:
-     logger.critical("Failed to import api_manager or elo_fetcher. Ensure script is run as part of the package or paths are correct.")
+     logger.critical("Failed to import api_manager. Ensure script is run as part of the package or paths are correct.")
      raise
 
 class RateLimiter:
@@ -158,32 +157,25 @@ class MatchProcessor:
         # Standings response is a list containing one dict usually
         return response_data.get("response") if response_data else None
 
-    # Updated fetch_api_data_for_match signature and logic
+    # Updated fetch_api_data_for_match signature and logic (removed ELO parameters and logic)
     async def fetch_api_data_for_match(
         self,
         fixture_id: int,
         league_id: int,
         season: int,
         home_team_id: int,
-        away_team_id: int,
-        home_team_name: str, # Needed for ELO
-        away_team_name: str, # Needed for ELO
-        match_date: datetime   # Needed for ELO
+        away_team_id: int
     ) -> Dict[str, Optional[Any]]:
         """
-        Fetches all required API data points (predictions, stats, standings) AND ELO
-        for a single match.
+        Fetches all required API data points (predictions, stats, standings) for a single match.
         """
         assert isinstance(fixture_id, int) and fixture_id > 0
         assert isinstance(league_id, int) and league_id > 0
         assert isinstance(season, int) and season > 1990
         assert isinstance(home_team_id, int) and home_team_id > 0
         assert isinstance(away_team_id, int) and away_team_id > 0
-        assert isinstance(home_team_name, str) and home_team_name
-        assert isinstance(away_team_name, str) and away_team_name
-        assert isinstance(match_date, datetime)
 
-        logger.info(f"Fetching API data & ELO for Fixture: {fixture_id}, League: {league_id}, Season: {season}")
+        logger.info(f"Fetching API data for Fixture: {fixture_id}, League: {league_id}, Season: {season}")
 
         # --- Fetch API Data Concurrently ---
         tasks = {
@@ -211,28 +203,9 @@ class MatchProcessor:
         if api_data.get("away_stats") is None: logger.warning(f"API call for away stats failed or returned no data for fixture {fixture_id}, team {away_team_id}")
         if api_data.get("standings") is None: logger.warning(f"API call for standings failed or returned no data for fixture {fixture_id}, league {league_id}")
 
-        # --- Fetch ELO Data (Synchronous call in executor) ---
-        home_elo, away_elo = None, None
-        try:
-            loop = asyncio.get_event_loop()
-            logger.debug(f"Fetching ELO for fixture {fixture_id} ({home_team_name} vs {away_team_name} on {match_date.date()})")
-            home_elo, away_elo = await loop.run_in_executor(
-                None, # Use default thread pool executor
-                elo_fetcher.get_elos_for_match, # The synchronous function to call
-                home_team_name,                 # Argument 1 for the function
-                away_team_name,                 # Argument 2
-                match_date                      # Argument 3
-            )
-            logger.info(f"Fetched ELO for fixture {fixture_id}: Home={home_elo}, Away={away_elo}")
-        except Exception as elo_err:
-            logger.error(f"Error fetching ELO for fixture {fixture_id}: {elo_err}", exc_info=True)
-            # Keep ELO as None if fetching fails
-
         # --- Combine all results ---
         final_results = {
             **api_data, # Unpack API data results
-            "HomeTeamELO": home_elo,
-            "AwayTeamELO": away_elo,
             "processed_at_utc": datetime.now(timezone.utc) # Add timestamp
         }
 
