@@ -10,7 +10,7 @@ from collections import Counter, defaultdict
 import matplotlib.pyplot as plt
 from scipy.stats import poisson
 import glob # Import glob for file matching
-from plotting_utils import create_combined_fixture_plot
+# from plotting_utils import create_combined_fixture_plot  # Plotting utils not available
 import math # Added
 from datetime import datetime, timezone # Added
 from typing import Any, Dict, List, Optional, Tuple

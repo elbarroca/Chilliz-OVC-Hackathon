@@ -19,20 +19,44 @@ class MongoDBManager:
         return cls._instance
 
     def __init__(self, uri: Optional[str] = None, db_name: Optional[str] = None):
-        if hasattr(self, '_initialized') and self._initialized:
+        if hasattr(self, '_initialized'):
             return
 
         self.client: Optional[MongoClient] = None
         self.db: Optional[Database] = None
         self._initialized = False
+        
+        # Store override values if provided
+        self._uri_override = uri
+        self._db_name_override = db_name
 
+    def close_connection(self):
+        if self.client:
+            self.client.close()
+            logger.info("MongoDB connection closed.")
+
+    def get_collection(self, collection_name: str) -> Optional[Collection]:
+        # Try to initialize if not already done
+        if not self._initialized:
+            self._try_initialize()
+        
+        if self.db is None:
+            logger.error("Database not initialized.")
+            return None
+        return self.db[collection_name]
+    
+    def _try_initialize(self):
+        """Try to initialize the database connection if not already done."""
+        if self._initialized:
+            return
+            
         try:
-            mongo_uri = uri or os.getenv('MONGODB_URI')
-            database_name = db_name or os.getenv('DB_NAME')
+            mongo_uri = getattr(self, '_uri_override', None) or os.getenv('MONGODB_URI')
+            database_name = getattr(self, '_db_name_override', None) or os.getenv('DB_NAME')
 
             if not mongo_uri or not database_name:
                 logger.error("MONGODB_URI and DB_NAME environment variables must be set.")
-                raise ValueError("MONGODB_URI and DB_NAME are not configured.")
+                return
 
             self.client = MongoClient(mongo_uri)
             self.db = self.client[database_name]
@@ -50,17 +74,6 @@ class MongoDBManager:
             logger.error(f"❌ An error occurred during MongoDB initialization: {e}")
             self.client = None
             self.db = None
-
-    def close_connection(self):
-        if self.client:
-            self.client.close()
-            logger.info("MongoDB connection closed.")
-
-    def get_collection(self, collection_name: str) -> Optional[Collection]:
-        if not self.db:
-            logger.error("Database not initialized.")
-            return None
-        return self.db[collection_name]
 
     def save_document(self, collection_name: str, document: Dict[str, Any], afilter: Dict[str, Any]):
         """Saves a document to a collection, updating if it exists."""
@@ -181,6 +194,15 @@ class MongoDBManager:
         if not collection:
             return None
         return collection.find_one({'date': date_str})
+
+    def save_daily_games(self, date_str: str, games_data: Dict[str, Any]) -> bool:
+        """Saves the daily games summary data."""
+        doc = {
+            'date': date_str,
+            'data': games_data,
+            'last_updated': datetime.utcnow()
+        }
+        return self.save_document('daily_games', doc, {'date': date_str})
 
 
 # Create a singleton instance of the manager

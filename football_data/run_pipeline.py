@@ -9,7 +9,9 @@ import json
 # Load environment variables from .env file
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    # Load .env from parent directory (project root)
+    env_path = Path(__file__).resolve().parent.parent / '.env'
+    load_dotenv(env_path)
     print("✓ Environment variables loaded from .env file")
 except ImportError:
     print("⚠ python-dotenv not installed, trying to load .env manually")
@@ -29,9 +31,15 @@ print("=== PIPELINE STARTING ===")
 print(f"Python version: {sys.version}")
 print(f"Current working directory: {os.getcwd()}")
 
+# Set MONGODB_URI if it's not set but MONGO_URI is
+if not os.getenv('MONGODB_URI') and os.getenv('MONGO_URI'):
+    os.environ['MONGODB_URI'] = os.getenv('MONGO_URI')
+    print("✓ Set MONGODB_URI from MONGO_URI")
+
 # Check environment variables
 print(f"API_FOOTBALL_KEY: {'SET' if os.getenv('API_FOOTBALL_KEY') else 'NOT SET'}")
 print(f"MONGODB_URI: {'SET' if os.getenv('MONGODB_URI') else 'NOT SET'}")
+print(f"MONGO_URI: {'SET' if os.getenv('MONGO_URI') else 'NOT SET'}")
 print(f"DB_NAME: {os.getenv('DB_NAME', 'NOT SET')}")
 
 # Add project root to system path
@@ -81,6 +89,13 @@ except Exception as e:
     print(f"✗ Failed to import db_manager: {e}")
     sys.exit(1)
 
+try:
+    from football_data.endpoints.fixture_details import FixtureDetailsFetcher
+    print("✓ FixtureDetailsFetcher imported successfully")
+except Exception as e:
+    print(f"✗ Failed to import FixtureDetailsFetcher: {e}")
+    sys.exit(1)
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -96,7 +111,12 @@ print("=== ALL IMPORTS SUCCESSFUL ===")
 
 
 async def run_match_processing_for_fixture(match_processor, fixture_data):
-    """Asynchronously processes a single fixture to fetch and store API data."""
+    """
+    Asynchronously processes a single fixture to:
+    1. Fetch and store detailed fixture data (events, stats, lineups).
+    2. Fetch and store processed data (predictions, team stats, standings).
+    3. Fetch and store historical matches for each team.
+    """
     try:
         fixture_id = int(fixture_data['fixture_id'])
         league_id = int(fixture_data['league_id'])
@@ -109,7 +129,11 @@ async def run_match_processing_for_fixture(match_processor, fixture_data):
 
         logger.info(f"Processing fixture ID: {fixture_id}")
 
-        # Fetch all data for the match
+        # 1. Fetch and save detailed fixture info
+        fixture_details_fetcher = FixtureDetailsFetcher(db_manager_instance=db_manager)
+        fixture_details_fetcher.get_fixture_details(fixture_id)
+        
+        # 2. Fetch all data for the match from MatchProcessor
         api_data = await match_processor.fetch_api_data_for_match(
             fixture_id=fixture_id,
             league_id=league_id,
@@ -122,12 +146,23 @@ async def run_match_processing_for_fixture(match_processor, fixture_data):
         )
 
         if api_data:
-            # Save the processed data to MongoDB
+            # 3. Fetch historical matches for both teams
+            logger.info(f"Fetching historical data for fixture {fixture_id}...")
+            home_history = db_manager.get_historical_matches(home_team_id, match_date, limit=15)
+            away_history = db_manager.get_historical_matches(away_team_id, match_date, limit=15)
+            
+            api_data['home_team_history'] = home_history
+            api_data['away_team_history'] = away_history
+            
+            logger.info(f"Found {len(home_history)} historical matches for home team {home_team_id}.")
+            logger.info(f"Found {len(away_history)} historical matches for away team {away_team_id}.")
+            
+            # 4. Save the combined processed data to MongoDB
             db_manager.save_match_processor_data(fixture_id, api_data)
-            logger.info(f"Successfully processed and saved data for fixture {fixture_id}.")
+            logger.info(f"Successfully processed and saved all data for fixture {fixture_id}.")
             return fixture_id
         else:
-            logger.warning(f"No API data returned for fixture {fixture_id}.")
+            logger.warning(f"No API data returned from MatchProcessor for fixture {fixture_id}.")
             return None
     except Exception as e:
         logger.error(f"Error processing fixture {fixture_data.get('fixture_id', 'N/A')}: {e}", exc_info=True)

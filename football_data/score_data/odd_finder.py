@@ -17,7 +17,7 @@ if project_root_for_import not in sys.path:
     sys.path.insert(0, project_root_for_import)
 
 try:
-    from get_data.api_football.db_mongo import db_manager, logger
+    from football_data.get_data.api_football.db_mongo import db_manager, logger
 except ImportError as e:
     print(f"Error importing db_manager: {e}")
 

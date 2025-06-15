@@ -220,12 +220,25 @@ class GameScraper:
                 "leagues": {}
             }
             
+            # Determine the correct season based on the date
+            # Football seasons typically run from August to May/July
+            # So for dates in 2025, we should use season 2024 until around July/August
+            current_year = date.year
+            current_month = date.month
+            
+            # If we're in the first half of the year (Jan-July), use previous year as season
+            # If we're in the second half (Aug-Dec), use current year as season
+            if current_month <= 7:
+                season = current_year - 1
+            else:
+                season = current_year
+            
             # Fetch all matches for the date
             response = self._make_api_request(
                 'fixtures',
                 {
                     "date": api_date,
-                    "season": 2024  # Use current active season
+                    "season": season
                 }
             )
             
@@ -284,7 +297,7 @@ class GameScraper:
                 
                 # Fetch standings for this league if not already in cache
                 if league_id not in standings_cache:
-                    standings_cache[league_id] = self._fetch_standings(league_id, 2024, api_date)
+                    standings_cache[league_id] = self._fetch_standings(league_id, season, api_date)
                 
                 # Prepare detailed match data for the matches collection
                 fixture_id = str(match["fixture"]["id"])

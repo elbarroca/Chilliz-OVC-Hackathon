@@ -16,15 +16,15 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # 3. Now import project-specific modules after pandas is fully initialized
-from api_football.endpoints.game_scraper import GameScraper
-from api_football.endpoints.api_manager import api_manager
-from api_football.endpoints.match_processor import MatchProcessor
-from api_football.endpoints.elo_fetcher import elo_fetcher, TEAM_ELO_HISTORIES_CACHE, FAILED_ELO_FETCH_TEAMS
-from api_football.endpoints.feature_calculator import feature_calculator
-from api_football.endpoints.odds_fetcher import OddsFetcher
-from api_football.db_mongo import db_manager
-from api_football.statarea_async_scraper import run_scraper_async
-from get_data.api_football.endpoints.fixture_details import FixtureDetailsFetcher
+from football_data.endpoints.game_scraper import GameScraper
+from football_data.endpoints.api_manager import api_manager
+from football_data.endpoints.match_processor import MatchProcessor
+# from football_data.endpoints.elo_fetcher import elo_fetcher, TEAM_ELO_HISTORIES_CACHE, FAILED_ELO_FETCH_TEAMS  # ELO removed
+from football_data.endpoints.feature_calculator import feature_calculator
+from football_data.endpoints.odds_fetcher import OddsFetcher
+from football_data.get_data.api_football.db_mongo import db_manager
+# from football_data.statarea_async_scraper import run_scraper_async  # StatArea not available
+from football_data.endpoints.fixture_details import FixtureDetailsFetcher
 
 logger = logging.getLogger(__name__)
 
@@ -587,36 +587,11 @@ async def fetch_workflow_data_v2(target_date: Optional[datetime] = None, force_r
     if team_names_to_prefetch:
         logger.info(f"--- Running Step 1.5: Pre-fetching ELO Histories for {len(team_names_to_prefetch)} unique teams ---")
         prefetched_count = 0
-        prefetch_failed_initially = len(FAILED_ELO_FETCH_TEAMS) # Count failures *before* this run
-
-        # Define a helper async function to wrap the synchronous call
-        async def prefetch_elo_task(team_name):
-            loop = asyncio.get_event_loop()
-            try:
-                # Run the potentially blocking synchronous function in a thread pool executor
-                history = await loop.run_in_executor(None, elo_fetcher._fetch_team_elo_history, team_name)
-                return history is not None # Return True if successful, False otherwise
-            except Exception as e:
-                 logger.warning(f"Error during ELO prefetch task for {team_name}: {e}", exc_info=False)
-                 return False # Mark as failed
-
-        # Run prefetching tasks concurrently
-        tasks = [prefetch_elo_task(name) for name in team_names_to_prefetch if name not in TEAM_ELO_HISTORIES_CACHE and name not in FAILED_ELO_FETCH_TEAMS]
-        results["elo_prefetch_attempted"] = len(tasks)
-        
-        if tasks:
-            prefetch_results = await asyncio.gather(*tasks, return_exceptions=True)
-            for result in prefetch_results:
-                if isinstance(result, bool) and result:
-                    prefetched_count += 1
-        
-        # Calculate final counts based on cache and failed set changes
-        results["elo_prefetch_successful"] = prefetched_count
-        results["elo_prefetch_failed"] = len(FAILED_ELO_FETCH_TEAMS) - prefetch_failed_initially # Count newly failed teams during this prefetch run
-        
-        logger.info(f"✅ Step 1.5 (ELO Prefetch) complete. Attempted: {results['elo_prefetch_attempted']}, Successful: {results['elo_prefetch_successful']}, Newly Failed: {results['elo_prefetch_failed']}")
-    else:
-         logger.info("--- Skipping Step 1.5: No team names found for ELO pre-fetching ---")
+        # ELO functionality removed - skipping prefetch
+        logger.info("--- Skipping Step 1.5: ELO functionality has been removed ---")
+        results["elo_prefetch_attempted"] = 0
+        results["elo_prefetch_successful"] = 0
+        results["elo_prefetch_failed"] = 0
 
 
     # --- Step 2: Process Base Match Data + API + ELO (Save to match_processor) ---
@@ -681,29 +656,13 @@ async def fetch_workflow_data_v2(target_date: Optional[datetime] = None, force_r
         results["odds_fixtures_failed"] = len(fixture_ids_to_process) - results["odds_fixtures_processed"] - results["odds_fixtures_skipped"]
 
     # --- Step 4: Fetch and Save StatArea Data ---
-    logger.info(f"--- Running Step 4: Fetching StatArea Data ---")
-    try:
-        # Fetch for all periods (5, 10, 15)
-        statarea_result = await run_scraper_async(
-            periods=[5, 10, 15],
-            force_update=force_reprocess
-        )
-
-        results["statarea_teams_attempted"] = statarea_result.get("total_tasks", 0)
-        results["statarea_successful_scrapes"] = statarea_result.get("successful_scrapes", 0)
-        results["statarea_failed_scrapes"] = statarea_result.get("failed_scrapes", 0)
-        results["statarea_skipped_tasks"] = statarea_result.get("skipped_tasks", 0)
-        results["statarea_saved_to_mongodb"] = statarea_result.get("saved_to_mongodb", 0)
-
-        if statarea_result.get("success", False):
-            logger.info(f"✅ Step 4 (StatArea) complete. Saved: {results['statarea_saved_to_mongodb']}, Skipped: {results['statarea_skipped_tasks']}, Failed: {results['statarea_failed_scrapes']}")
-        else:
-            logger.error(f"❌ Step 4 (StatArea) failed. Error: {statarea_result.get('error', 'Unknown')}")
-            results["success"] = False
-
-    except Exception as e:
-        logger.error(f"❌ Critical Error in Step 4 (Fetching StatArea): {str(e)}", exc_info=True)
-        results["success"] = False
+    logger.info(f"--- Skipping Step 4: StatArea functionality has been removed ---")
+    # StatArea functionality removed - setting default values
+    results["statarea_teams_attempted"] = 0
+    results["statarea_successful_scrapes"] = 0
+    results["statarea_failed_scrapes"] = 0
+    results["statarea_skipped_tasks"] = 0
+    results["statarea_saved_to_mongodb"] = 0
 
     # --- Step 5: Ensure Historical Data Completeness ---
     logger.info(f"--- Running Step 5: Ensuring Historical Data Completeness (Past 15 days) ---")
@@ -825,7 +784,7 @@ async def fetch_workflow_data_v2(target_date: Optional[datetime] = None, force_r
     logger.info(f"  - Attempted: {results['elo_prefetch_attempted']}")
     logger.info(f"  - Successful: {results['elo_prefetch_successful']}")
     logger.info(f"  - Newly Failed: {results['elo_prefetch_failed']}")
-    logger.info(f"  - Total Failed Teams (Cumulative): {len(FAILED_ELO_FETCH_TEAMS)}")
+    logger.info(f"  - Total Failed Teams (Cumulative): 0 (ELO removed)")
     
     # Failed IDs
     if results["failed_base_fixture_ids"]:
