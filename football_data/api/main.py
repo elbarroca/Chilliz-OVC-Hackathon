@@ -76,6 +76,7 @@ class MatchAnalysis(BaseModel):
     match_outcome_probabilities: Dict[str, OutcomeProbabilities]
     all_market_probabilities: Dict[str, Dict[str, Dict[str, float]]]  # model -> market -> selection -> probability
     plotting_data: ComprehensivePlottingData
+    reasoning: str
 
 class DateAnalysisResponse(BaseModel):
     date: str

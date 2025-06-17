@@ -299,7 +299,8 @@ class FixtureAnalysisGenerator:
             },
             'expected_goals': prob_results['lambdas'],
             'match_outcome_probabilities': {},
-            'all_market_probabilities': {}
+            'all_market_probabilities': {},
+            'reasoning': ''
         }
         
         # Extract simplified outcome probabilities for backward compatibility
@@ -328,6 +329,9 @@ class FixtureAnalysisGenerator:
         
         # Generate comprehensive plotting data
         summary['plotting_data'] = self.generate_comprehensive_plotting_data(summary)
+        
+        # Generate reasoning for the match
+        summary['reasoning'] = self.generate_match_reasoning(fixture_data, summary)
         
         return summary
     
@@ -369,6 +373,76 @@ class FixtureAnalysisGenerator:
             import traceback
             traceback.print_exc()
             return None
+
+    def generate_match_reasoning(self, fixture_data: Dict, summary: Dict[str, Any]) -> str:
+        """Generate AI-powered reasoning for the match prediction."""
+        try:
+            home_team = fixture_data.get('home_team', 'Home Team')
+            away_team = fixture_data.get('away_team', 'Away Team')
+            
+            # Get expected goals
+            expected_goals = summary.get('expected_goals', {})
+            home_xg = expected_goals.get('home', 0)
+            away_xg = expected_goals.get('away', 0)
+            
+            # Get Monte Carlo probabilities (most reliable model)
+            mc_probs = summary.get('match_outcome_probabilities', {}).get('monte_carlo', {})
+            home_win_prob = mc_probs.get('home_win', 0) * 100
+            draw_prob = mc_probs.get('draw', 0) * 100
+            away_win_prob = mc_probs.get('away_win', 0) * 100
+            btts_prob = mc_probs.get('both_teams_score', 0) * 100
+            over25_prob = mc_probs.get('over_2_5_goals', 0) * 100
+            
+            # Determine the most likely outcome
+            outcomes = [
+                (home_win_prob, f"{home_team} victory"),
+                (draw_prob, "a draw"),
+                (away_win_prob, f"{away_team} victory")
+            ]
+            top_outcome = max(outcomes, key=lambda x: x[0])
+            
+            # Goal difference analysis
+            goal_diff = abs(home_xg - away_xg)
+            
+            # Build reasoning
+            reasoning_parts = []
+            
+            # Main prediction
+            reasoning_parts.append(f"Our advanced Monte Carlo simulation predicts {top_outcome[1]} as the most likely outcome with {top_outcome[0]:.1f}% probability.")
+            
+            # Expected goals analysis
+            if goal_diff > 0.5:
+                stronger_team = home_team if home_xg > away_xg else away_team
+                reasoning_parts.append(f"Expected goals favor {stronger_team} ({home_xg:.2f} vs {away_xg:.2f}), indicating a significant attacking advantage.")
+            else:
+                reasoning_parts.append(f"Expected goals are closely matched ({home_xg:.2f} vs {away_xg:.2f}), suggesting a competitive encounter.")
+            
+            # Goals market analysis
+            if over25_prob > 65:
+                reasoning_parts.append(f"High-scoring match expected with {over25_prob:.1f}% chance of over 2.5 goals.")
+            elif over25_prob < 35:
+                reasoning_parts.append(f"Low-scoring affair anticipated with only {over25_prob:.1f}% probability of over 2.5 goals.")
+            
+            # BTTS analysis
+            if btts_prob > 60:
+                reasoning_parts.append(f"Both teams likely to find the net ({btts_prob:.1f}% BTTS probability).")
+            elif btts_prob < 40:
+                reasoning_parts.append(f"Clean sheet potential exists with {100-btts_prob:.1f}% chance of one team failing to score.")
+            
+            # Home advantage consideration
+            if home_xg > away_xg + 0.3:
+                reasoning_parts.append(f"Home advantage appears significant in this matchup.")
+            
+            # Uncertainty analysis
+            outcome_spread = max(home_win_prob, draw_prob, away_win_prob) - min(home_win_prob, draw_prob, away_win_prob)
+            if outcome_spread < 30:
+                reasoning_parts.append("This is a highly unpredictable match with multiple possible outcomes.")
+            
+            return " ".join(reasoning_parts)
+            
+        except Exception as e:
+            # Fallback reasoning
+            return f"Statistical analysis suggests a competitive match between {fixture_data.get('home_team', 'the home team')} and {fixture_data.get('away_team', 'the away team')}. Expected goals and probability models indicate balanced attacking potential from both sides."
 
 async def main():
     """For testing the generator directly."""

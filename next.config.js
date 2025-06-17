@@ -9,15 +9,15 @@ const nextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: 's2.coinmarketcap.com',
+        hostname: 'media.api-sports.io',
         port: '',
-        pathname: '/static/image/coins/**',
+        pathname: '/football/**',
       },
       {
         protocol: 'https',
-        hostname: 'logos-world.net',
+        hostname: 's2.coinmarketcap.com',
         port: '',
-        pathname: '/wp-content/uploads/**',
+        pathname: '/**',
       },
     ],
   },

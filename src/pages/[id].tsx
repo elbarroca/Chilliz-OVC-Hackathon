@@ -1,6 +1,6 @@
 import { type GetServerSideProps, type NextPage } from "next";
 import Image from "next/image";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { StakingInterface, type ParlaySelectionDetails } from "@/components/features/StakingInterface";
@@ -55,6 +55,11 @@ const MatchPage: NextPage<{ match: MatchWithAnalysis }> = ({ match }) => {
 
   const [parlaySelections, setParlaySelections] = useState<ParlaySelectionDetails[]>([]);
 
+  // Debug effect to track parlay changes
+  useEffect(() => {
+    console.log('Parlay selections updated:', parlaySelections);
+  }, [parlaySelections]);
+
   const matchDate = new Date(match.matchTime);
   
   const getAlphaPick = () => {
@@ -66,6 +71,8 @@ const MatchPage: NextPage<{ match: MatchWithAnalysis }> = ({ match }) => {
   const alphaPick = getAlphaPick();
 
   const handleSelectBet = (selection: ParlaySelectionDetails | ParlaySelection) => {
+    console.log('handleSelectBet called with:', selection); // Debug log
+    console.log('Current parlay selections before update:', parlaySelections); // Debug log
     setParlaySelections(prev => {
         const currentSelections = [...(prev || [])];
         
@@ -93,7 +100,9 @@ const MatchPage: NextPage<{ match: MatchWithAnalysis }> = ({ match }) => {
             return newSelections;
         } else {
             // Otherwise, add the new selection to the parlay.
-            return [...currentSelections, newSelection];
+            const updatedSelections = [...currentSelections, newSelection];
+            console.log('Adding new selection, updated parlay:', updatedSelections); // Debug log
+            return updatedSelections;
         }
     });
   };

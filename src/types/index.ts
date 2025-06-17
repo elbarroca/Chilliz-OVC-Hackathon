@@ -131,6 +131,7 @@ export interface MatchAnalysisData {
       away_expected: number;
     };
   };
+  reasoning?: string; // AI-generated reasoning for the prediction
 }
 
 // Enhanced match interface with alpha analysis data

@@ -23,6 +23,7 @@ interface StakingInterfaceProps {
     onSelectBet?: (details: ParlaySelectionDetails) => void;
     onPlaceSingleBet?: (selection: ParlaySelectionDetails, amount: number) => void;
     parlaySelections?: ParlaySelectionDetails[];
+    showMarkets?: ('market' | 'alpha' | 'btts' | 'goals')[];
 }
 
 const generateDynamicMarketData = (matchId: string) => {
@@ -55,7 +56,7 @@ const generateDynamicMarketData = (matchId: string) => {
     };
 };
 
-export function StakingInterface({ match, onSelectBet, onPlaceSingleBet, parlaySelections = [] }: StakingInterfaceProps) {
+export function StakingInterface({ match, onSelectBet, onPlaceSingleBet, parlaySelections = [], showMarkets = ['market', 'alpha', 'btts', 'goals'] }: StakingInterfaceProps) {
   const dynamicMarketData = generateDynamicMarketData(match._id);
   const [selectedBet, setSelectedBet] = useState<ParlaySelectionDetails | null>(null);
   const [singleBetAmount, setSingleBetAmount] = useState('');
@@ -85,15 +86,21 @@ export function StakingInterface({ match, onSelectBet, onPlaceSingleBet, parlayS
   ];
 
   const handleSelect = (details: ParlaySelectionDetails) => {
+    console.log('Selection made:', details); // Debug log
     setSelectedBet(details);
     setShowBettingOptions(`${details.poolType}-${details.selectionId}`);
   }
 
   const handleAddToParlay = () => {
+    console.log('Adding to parlay:', selectedBet); // Debug log
+    console.log('Current parlay selections before add:', parlaySelections); // Debug log
     if (selectedBet && onSelectBet) {
       onSelectBet(selectedBet);
       setShowBettingOptions(null);
       setSelectedBet(null);
+      console.log('Parlay selection sent to parent'); // Debug log
+    } else {
+      console.error('Missing selectedBet or onSelectBet callback:', { selectedBet, onSelectBet });
     }
   }
 
@@ -167,9 +174,11 @@ export function StakingInterface({ match, onSelectBet, onPlaceSingleBet, parlayS
   const isMatchInParlay = parlaySelections?.some(s => s.matchId === match._id) || false;
 
   const renderMarketCard = (type: 'market' | 'alpha') => {
+    if (!showMarkets.includes(type)) return null;
+
     const poolData = type === 'market' ? dynamicMarketData.market : dynamicMarketData.alpha;
     const title = type === 'market' ? 'Market Pool' : 'Alpha Pool';
-    const icon = type === 'market' ? <Heart className="text-red-400" /> : <Bot className="text-gray-400" />;
+    const icon = type === 'market' ? <Heart className="text-red-400" /> : <Bot className="text-blue-400" />;
     
     return (
         <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700/50 flex flex-col h-full">
@@ -205,9 +214,12 @@ export function StakingInterface({ match, onSelectBet, onPlaceSingleBet, parlayS
                                 variant={'ghost'}
                                 size="lg"
                                 onClick={() => handleSelect(betDetails)}
-                                className={`w-full justify-between text-base p-4 h-auto transition-all duration-200 rounded-md ${isSelected ? 'bg-blue-600/30' : isDropdownActive ? 'bg-gray-700' : 'bg-gray-800/50 hover:bg-gray-700/80'}`}
+                                className={`w-full justify-between text-base p-4 h-auto transition-all duration-200 rounded-md ${isSelected ? 'bg-blue-600/50 border border-blue-400/50' : isDropdownActive ? 'bg-gray-700' : 'bg-gray-800/50 hover:bg-gray-700/80'}`}
                             >
-                                <span className="font-semibold text-gray-300">{name}</span>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-gray-300">{name}</span>
+                                  {isSelected && <span className="text-blue-400 text-xs">✓ In Parlay</span>}
+                                </div>
                                 <span className="font-mono text-lg font-bold text-green-400">{data.payout.toFixed(2)}x</span>
                             </Button>
                             <BettingDropdown betDetails={betDetails} isActive={isDropdownActive} />
@@ -219,32 +231,35 @@ export function StakingInterface({ match, onSelectBet, onPlaceSingleBet, parlayS
     )
   }
 
-  const renderSideMarketCard = (
-    marketType: 'btts' | 'goals',
-    title: string,
-    icon: React.ReactNode,
-    options: { label: string, selectionId: string, odds: number }[]
-  ) => {
+  // BTTS market component
+  const renderBTTSCard = () => {
+    if (!showMarkets.includes('btts')) return null;
+
+    const bttsOptions = [
+      { label: 'Yes', selectionId: 'yes', odds: dynamicMarketData.btts.yes.payout },
+      { label: 'No', selectionId: 'no', odds: dynamicMarketData.btts.no.payout },
+    ];
+
     return (
         <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700/50 flex flex-col h-full">
             <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                    {icon}
-                    <span className="font-bold text-white">{title}</span>
+                    <Shield className="text-yellow-400" />
+                    <span className="font-bold text-white">Both Teams To Score</span>
                 </div>
             </div>
             <div className="space-y-2 flex-grow flex flex-col justify-end">
-                {options.map(({ label, selectionId, odds }) => {
-                    const isSelected = isOutcomeSelected(marketType, selectionId);
+                {bttsOptions.map(({ label, selectionId, odds }) => {
+                    const isSelected = isOutcomeSelected('btts', selectionId);
                     const betDetails = {
-                        poolType: marketType,
+                        poolType: 'btts' as const,
                         matchId: match._id,
                         matchName: `${match.teamA.name} vs ${match.teamB.name}`,
-                        selectionName: `${title}: ${label}`,
+                        selectionName: `BTTS: ${label}`,
                         selectionId: selectionId,
                         odds: odds
                     };
-                    const isDropdownActive = showBettingOptions === `${marketType}-${selectionId}`;
+                    const isDropdownActive = showBettingOptions === `btts-${selectionId}`;
 
                     return (
                         <div key={selectionId} className="relative">
@@ -252,9 +267,12 @@ export function StakingInterface({ match, onSelectBet, onPlaceSingleBet, parlayS
                                 variant={'ghost'}
                                 size="lg"
                                 onClick={() => handleSelect(betDetails)}
-                                className={`w-full justify-between text-base p-4 h-auto transition-all duration-200 rounded-md ${isSelected ? 'bg-blue-600/30' : isDropdownActive ? 'bg-gray-700' : 'bg-gray-800/50 hover:bg-gray-700/80'}`}
+                                className={`w-full justify-between text-base p-4 h-auto transition-all duration-200 rounded-md ${isSelected ? 'bg-blue-600/50 border border-blue-400/50' : isDropdownActive ? 'bg-gray-700' : 'bg-gray-800/50 hover:bg-gray-700/80'}`}
                             >
-                                <span className="font-semibold text-gray-300">{label}</span>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-gray-300">{label}</span>
+                                  {isSelected && <span className="text-blue-400 text-xs">✓ In Parlay</span>}
+                                </div>
                                 <span className="font-mono text-lg font-bold text-green-400">{odds.toFixed(2)}x</span>
                             </Button>
                             <BettingDropdown betDetails={betDetails} isActive={isDropdownActive} />
@@ -266,43 +284,98 @@ export function StakingInterface({ match, onSelectBet, onPlaceSingleBet, parlayS
     )
   }
 
-  const bttsOptions = [
-    { label: 'Yes', selectionId: 'yes', odds: dynamicMarketData.btts.yes.payout },
-    { label: 'No', selectionId: 'no', odds: dynamicMarketData.btts.no.payout },
-  ];
+  // Goals market component - under/above
+  const renderGoalsCard = () => {
+    if (!showMarkets.includes('goals')) return null;
 
-  const goalsData = dynamicMarketData.goals;
-  const goalsOptions = [
-    { label: 'Over 1.5', selectionId: 'o1.5', odds: goalsData['o1.5'].payout },
-    { label: 'Under 1.5', selectionId: 'u1.5', odds: goalsData['u1.5'].payout },
-    { label: 'Over 2.5', selectionId: 'o2.5', odds: goalsData['o2.5'].payout },
-    { label: 'Under 2.5', selectionId: 'u2.5', odds: goalsData['u2.5'].payout },
-    { label: 'Over 3.5', selectionId: 'o3.5', odds: goalsData['o3.5'].payout },
-    { label: 'Under 3.5', selectionId: 'u3.5', odds: goalsData['u3.5'].payout },
-  ];
+    const goalsData = dynamicMarketData.goals;
+    
+    const underOptions = [
+      { label: 'Under 1.5', selectionId: 'u1.5', odds: goalsData['u1.5'].payout },
+      { label: 'Under 2.5', selectionId: 'u2.5', odds: goalsData['u2.5'].payout },
+      { label: 'Under 3.5', selectionId: 'u3.5', odds: goalsData['u3.5'].payout },
+    ];
 
+    const overOptions = [
+      { label: 'Over 1.5', selectionId: 'o1.5', odds: goalsData['o1.5'].payout },
+      { label: 'Over 2.5', selectionId: 'o2.5', odds: goalsData['o2.5'].payout },
+      { label: 'Over 3.5', selectionId: 'o3.5', odds: goalsData['o3.5'].payout },
+    ];
+
+    const renderGoalsSection = (options: typeof underOptions, title: string, icon: string) => (
+        <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700/50 flex flex-col h-full">
+            <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                    <Goal className="text-green-400" />
+                    <span className="font-bold text-white">{title}</span>
+                </div>
+            </div>
+            <div className="space-y-2 flex-grow flex flex-col justify-end">
+                {options.map(({ label, selectionId, odds }) => {
+                    const isSelected = isOutcomeSelected('goals', selectionId);
+                    const betDetails = {
+                        poolType: 'goals' as const,
+                        matchId: match._id,
+                        matchName: `${match.teamA.name} vs ${match.teamB.name}`,
+                        selectionName: `Goals: ${label}`,
+                        selectionId: selectionId,
+                        odds: odds
+                    };
+                    const isDropdownActive = showBettingOptions === `goals-${selectionId}`;
+
+                    return (
+                        <div key={selectionId} className="relative">
+                            <Button
+                                variant={'ghost'}
+                                size="lg"
+                                onClick={() => handleSelect(betDetails)}
+                                className={`w-full justify-between text-base p-4 h-auto transition-all duration-200 rounded-md ${isSelected ? 'bg-blue-600/50 border border-blue-400/50' : isDropdownActive ? 'bg-gray-700' : 'bg-gray-800/50 hover:bg-gray-700/80'}`}
+                            >
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-gray-300">{label}</span>
+                                  {isSelected && <span className="text-blue-400 text-xs">✓ In Parlay</span>}
+                                </div>
+                                <span className="font-mono text-lg font-bold text-green-400">{odds.toFixed(2)}x</span>
+                            </Button>
+                            <BettingDropdown betDetails={betDetails} isActive={isDropdownActive} />
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+
+    return (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {renderGoalsSection(underOptions, "Under Goals", "under")}
+            {renderGoalsSection(overOptions, "Over Goals", "over")}
+        </div>
+    );
+  }
 
   return (
-    <div ref={containerRef} className="space-y-4">
-      <Card className="bg-transparent border-none shadow-none">
-        <CardHeader className="p-0 mb-4">
-            <CardTitle className="text-xl font-bold text-white">Main Markets</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0 grid grid-cols-1 md:grid-cols-2 gap-4">
-            {renderMarketCard('market')}
-            {renderMarketCard('alpha')}
-        </CardContent>
-      </Card>
+    <div ref={containerRef} className="space-y-6">
+      {/* Market/Alpha Row */}
+      {(showMarkets.includes('market') || showMarkets.includes('alpha')) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {renderMarketCard('market')}
+          {renderMarketCard('alpha')}
+        </div>
+      )}
 
-      <Card className="bg-transparent border-none shadow-none">
-        <CardHeader className="p-0 mb-4">
-            <CardTitle className="text-xl font-bold text-white">Side Markets</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0 grid grid-cols-1 md:grid-cols-2 gap-4">
-            {renderSideMarketCard('btts', 'Both Teams To Score', <Shield className="text-yellow-400" />, bttsOptions)}
-            {renderSideMarketCard('goals', 'Total Goals', <Goal className="text-green-400" />, goalsOptions)}
-        </CardContent>
-      </Card>
+      {/* BTTS Row */}
+      {showMarkets.includes('btts') && (
+        <div className="grid grid-cols-1">
+          {renderBTTSCard()}
+        </div>
+      )}
+
+      {/* Under/Above Goals Row */}
+      {showMarkets.includes('goals') && (
+        <div className="grid grid-cols-1">
+          {renderGoalsCard()}
+        </div>
+      )}
     </div>
   );
 }
