@@ -234,6 +234,32 @@ class MongoDBManager:
 
         return self._matches_collection.find_one({"_id": fixture_id})
 
+    def get_team_historical_matches(self, team_id: int, match_date_str: str, limit: int = 15) -> List[Dict[str, Any]]:
+        """
+        Retrieves historical matches for a team from the 'matches' collection
+        played before a given date string.
+        """
+        assert self._initialized and self._matches_collection is not None
+        assert isinstance(team_id, int), "Team ID must be an integer"
+        assert isinstance(match_date_str, str), "match_date_str must be a string"
+        
+        try:
+            query = {
+                "$and": [
+                    {"date_str": {"$lt": match_date_str}},
+                    {"status_short": "FT"},
+                    {"$or": [{"home_team_id": team_id}, {"away_team_id": team_id}]}
+                ]
+            }
+            
+            # Sort by date descending and limit the results
+            cursor = self._matches_collection.find(query).sort("date_str", -1).limit(limit)
+            
+            return list(cursor)
+        except Exception as e:
+            logger.error(f"Error fetching historical matches for team {team_id}: {e}", exc_info=True)
+            return []
+
     def get_historical_matches(self, team_id: int, before_date: datetime, limit: int = 25) -> List[Dict[str, Any]]:
         """
         Retrieves historical matches for a team played strictly *before* a given date.
@@ -982,4 +1008,6 @@ class MongoDBManager:
             return document.get("fixture_ids")
         return None
 
-db_manager = MongoDBManager(db_name=os.getenv("MONGO_DB_NAME", "Alpha"))
+# Create a global instance for backward compatibility
+# This allows other modules to import db_manager as they expect
+db_manager = MongoDBManager()

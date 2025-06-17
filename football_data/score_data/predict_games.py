@@ -22,6 +22,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Import market mapper and plotting utils
+try:
+    from football_data.api.market_mapper import MARKET_MAPPING, get_market_and_selection
+    from football_data.score_data.plotting_utils import create_combined_fixture_plot
+    MARKET_MAPPING_AVAILABLE = True
+    logger.info("✓ Market mapping and plotting utilities loaded successfully")
+except ImportError as e:
+    logger.warning(f"⚠ Could not import market mapping or plotting utilities: {e}")
+    MARKET_MAPPING_AVAILABLE = False
+
 # --- Configuration ---
 MONTE_CARLO_SIMULATIONS = 80000 # Increased number of simulations
 TOP_N_SCENARIOS = 10 # Number of top scenarios to display
@@ -29,6 +39,137 @@ UNIFIED_DATA_DIR = "data/unified_data" # Directory containing the JSON files to 
 OUTPUT_DIR = "data/output" # Directory for output results
 PLOTS_DIR = os.path.join(OUTPUT_DIR, "plots") # Directory for saving plots
 MC_MAX_SCORE_PLOT = 5 # Max goals for score matrix plot
+
+# --- Edge Calculation Function ---
+def calculate_market_edges(probabilities: Dict[str, float], odds_data: Optional[Dict] = None) -> Dict[str, Dict]:
+    """
+    Calculate edge for all markets using the market mapper.
+    Returns a dictionary with market analysis including edge calculations.
+    """
+    if not MARKET_MAPPING_AVAILABLE or not odds_data:
+        return {}
+    
+    market_analysis = {}
+    
+    for prob_key, probability in probabilities.items():
+        if prob_key.startswith('prob_') and isinstance(probability, (int, float)):
+            # Get market mapping for this probability key
+            market_info = get_market_and_selection(prob_key)
+            if market_info:
+                market_name = market_info['market_name']
+                selection_value = market_info['selection_value']
+                
+                # Find corresponding odds in odds_data
+                odds_value = None
+                if odds_data and 'bookmakers' in odds_data:
+                    for bookmaker in odds_data['bookmakers']:
+                        if bookmaker.get('name') == 'Bet365':  # Focus on Bet365
+                            for bet in bookmaker.get('bets', []):
+                                if bet.get('name') == market_name:
+                                    for value in bet.get('values', []):
+                                        if value.get('value') == selection_value:
+                                            odds_value = float(value.get('odd', 0))
+                                            break
+                                    if odds_value:
+                                        break
+                            if odds_value:
+                                break
+                
+                if odds_value and odds_value > 1.0:
+                    # Calculate edge: (probability * odds - 1) / (odds - 1)
+                    implied_prob = 1.0 / odds_value
+                    edge = probability - implied_prob
+                    edge_percent = edge * 100
+                    
+                    market_analysis[prob_key] = {
+                        'market_name': market_name,
+                        'selection': selection_value,
+                        'our_probability': probability,
+                        'odds': odds_value,
+                        'implied_probability': implied_prob,
+                        'edge': edge,
+                        'edge_percent': edge_percent,
+                        'kelly_fraction': max(0, edge / (odds_value - 1)) if odds_value > 1 else 0
+                    }
+    
+    return market_analysis
+
+# --- Enhanced Results Processing ---
+def process_and_save_enhanced_results(results: Dict[str, Any], output_path: str) -> Dict[str, Any]:
+    """
+    Process results with market analysis and save enhanced output.
+    """
+    # Get odds data if available
+    odds_data = safe_get(results, ['raw_data', 'odds'])
+    
+    # Calculate market edges for all probability sets
+    enhanced_results = results.copy()
+    
+    if odds_data:
+        # Analyze Monte Carlo probabilities
+        if results.get('mc_probs'):
+            mc_edges = calculate_market_edges(results['mc_probs'], odds_data)
+            enhanced_results['mc_market_analysis'] = mc_edges
+        
+        # Analyze Analytical Poisson probabilities
+        if results.get('analytical_poisson_probs'):
+            ap_edges = calculate_market_edges(results['analytical_poisson_probs'], odds_data)
+            enhanced_results['analytical_market_analysis'] = ap_edges
+        
+        # Analyze Bivariate Poisson probabilities
+        if results.get('bivariate_poisson_probs'):
+            bp_edges = calculate_market_edges(results['bivariate_poisson_probs'], odds_data)
+            enhanced_results['bivariate_market_analysis'] = bp_edges
+    
+    # Find best value bets across all models
+    best_value_bets = find_best_value_bets(enhanced_results)
+    enhanced_results['best_value_bets'] = best_value_bets
+    
+    # Save enhanced results
+    try:
+        class NpEncoder(json.JSONEncoder):
+            def default(self, obj):
+                if isinstance(obj, np.integer): return int(obj)
+                if isinstance(obj, np.floating): return float(obj)
+                if isinstance(obj, np.ndarray): return obj.tolist()
+                if isinstance(obj, tuple) and any(x is None for x in obj):
+                    return [None if x is None else x for x in obj]
+                if isinstance(obj, float) and math.isnan(obj):
+                    return None
+                return super(NpEncoder, self).default(obj)
+        
+        with open(output_path, 'w') as f:
+            json.dump(enhanced_results, f, indent=4, cls=NpEncoder)
+        logger.info(f"Saved enhanced results with market analysis to {output_path}")
+    except Exception as e:
+        logger.error(f"Failed to save enhanced results: {e}", exc_info=True)
+    
+    return enhanced_results
+
+def find_best_value_bets(results: Dict[str, Any]) -> List[Dict]:
+    """
+    Find the best value bets across all prediction models.
+    """
+    all_bets = []
+    
+    # Collect all market analyses
+    analysis_keys = ['mc_market_analysis', 'analytical_market_analysis', 'bivariate_market_analysis']
+    
+    for analysis_key in analysis_keys:
+        market_analysis = results.get(analysis_key, {})
+        model_name = analysis_key.replace('_market_analysis', '').replace('_', ' ').title()
+        
+        for prob_key, analysis in market_analysis.items():
+            if analysis.get('edge', 0) > 0:  # Only positive edge bets
+                bet_info = analysis.copy()
+                bet_info['model'] = model_name
+                bet_info['prob_key'] = prob_key
+                all_bets.append(bet_info)
+    
+    # Sort by edge percentage descending
+    all_bets.sort(key=lambda x: x.get('edge_percent', 0), reverse=True)
+    
+    return all_bets[:20]  # Return top 20 value bets
 
 # --- Helper Functions ---
 def safe_get(data: Dict, keys: List[str], default: Any = None) -> Any:
@@ -621,21 +762,29 @@ def calculate_strength_adjusted_lambdas(fixture_data: Dict) -> Tuple[Optional[fl
         """
         logger.info("Calculating strength-adjusted lambdas...")
 
-        home_snap = safe_get(fixture_data, ['raw_data', 'home', 'match_processor_snapshot'], {})
-        away_snap = safe_get(fixture_data, ['raw_data', 'away', 'match_processor_snapshot'], {})
+        # --- Corrected data extraction path ---
+        team_stats_base = safe_get(fixture_data, ['predictions', 0, 'teams'], default={})
+        home_stats = team_stats_base.get('home', {})
+        away_stats = team_stats_base.get('away', {})
+
+        if not home_stats or not away_stats:
+            logger.error("Could not find home or away team stats in the expected location: ['predictions'][0]['teams']")
+            return None, None
+
 
         # --- Get Average Goals Scored and Conceded (Home/Away/Total) ---
         # Home Team
-        h_avg_for_home = safe_get(home_snap, ['goals', 'for', 'average', 'home'])
-        h_avg_conceded_home = safe_get(home_snap, ['goals', 'against', 'average', 'home'])
-        h_avg_for_total = safe_get(home_snap, ['goals', 'for', 'average', 'total'])
-        h_avg_conceded_total = safe_get(home_snap, ['goals', 'against', 'average', 'total'])
+        h_avg_for_home = safe_get(home_stats, ['fixtures', 'goals', 'for', 'average', 'home'])
+        h_avg_conceded_home = safe_get(home_stats, ['fixtures', 'goals', 'against', 'average', 'home'])
+        h_avg_for_total = safe_get(home_stats, ['fixtures', 'goals', 'for', 'average', 'total'])
+        h_avg_conceded_total = safe_get(home_stats, ['fixtures', 'goals', 'against', 'average', 'total'])
 
         # Away Team
-        a_avg_for_away = safe_get(away_snap, ['goals', 'for', 'average', 'away'])
-        a_avg_conceded_away = safe_get(away_snap, ['goals', 'against', 'average', 'away'])
-        a_avg_for_total = safe_get(away_snap, ['goals', 'for', 'average', 'total'])
-        a_avg_conceded_total = safe_get(away_snap, ['goals', 'against', 'average', 'total'])
+        a_avg_for_away = safe_get(away_stats, ['fixtures', 'goals', 'for', 'average', 'away'])
+        a_avg_conceded_away = safe_get(away_stats, ['fixtures', 'goals', 'against', 'average', 'away'])
+        a_avg_for_total = safe_get(away_stats, ['fixtures', 'goals', 'for', 'average', 'total'])
+        a_avg_conceded_total = safe_get(away_stats, ['fixtures', 'goals', 'against', 'average', 'total'])
+
 
         # --- Validate data ---
         required_vals = [
@@ -698,142 +847,114 @@ def run_monte_carlo_simulation(
     random_seed: Optional[int] = 42
 ) -> Optional[Tuple[Dict[str, float], Dict[str, float]]]:
     """
-    Runs a Monte Carlo simulation using Poisson-distributed random variables.
-    Calculates probabilities for a comprehensive set of betting markets efficiently using NumPy.
+    Runs a Monte Carlo simulation based on Poisson-distributed goal expectations.
+    This version iterates through simulations to calculate a wide range of market probabilities.
     """
     if lambda_home is None or lambda_away is None or lambda_home < 0 or lambda_away < 0:
-        logger.error(f"Cannot run Monte Carlo simulation with invalid lambdas: Home={lambda_home}, Away={lambda_away}")
-        return None, None
+        logger.error(f"Invalid lambdas for Monte Carlo: Home={lambda_home}, Away={lambda_away}")
+        return None
 
-    # Set seed for reproducibility
-    if random_seed is not None:
+    if random_seed:
         np.random.seed(random_seed)
 
-    # Generate all simulated scores in one go
-    sim_hg = np.random.poisson(lambda_home, num_simulations)
-    sim_ag = np.random.poisson(lambda_away, num_simulations)
-    total_goals = sim_hg + sim_ag
+    # Initialize counters for outcomes
+    outcome_counts = Counter()
+    score_counts = Counter()
 
-    # --- Boolean Arrays for Core Outcomes ---
-    is_H = sim_hg > sim_ag
-    is_D = sim_hg == sim_ag
-    is_A = sim_hg < sim_ag
-    is_1X = is_H | is_D
-    is_12 = is_H | is_A
-    is_X2 = is_A | is_D
-    is_BTTS_Y = (sim_hg > 0) & (sim_ag > 0)
-    is_BTTS_N = ~is_BTTS_Y
+    # --- Run Simulation ---
+    for _ in range(num_simulations):
+        home_goals = np.random.poisson(lambda_home)
+        away_goals = np.random.poisson(lambda_away)
+        score_counts[f"{home_goals}-{away_goals}"] += 1
+        total_goals = home_goals + away_goals
+        
+        # --- Basic Outcomes ---
+        is_home_win = home_goals > away_goals
+        is_draw = home_goals == away_goals
+        is_away_win = home_goals < away_goals
+        is_btts_yes = home_goals > 0 and away_goals > 0
+        
+        # --- Double Chance ---
+        is_1X = is_home_win or is_draw
+        is_X2 = is_away_win or is_draw
+        is_12 = is_home_win or is_away_win
 
-    # --- Boolean Arrays for Goal Lines ---
-    goal_lines = [1.5, 2.5, 3.5, 4.5]
-    is_O = {line: total_goals > line for line in goal_lines}
-    is_U = {line: total_goals <= line for line in goal_lines}
+        # --- Update Counters ---
+        if is_home_win: outcome_counts['prob_H'] += 1
+        if is_draw: outcome_counts['prob_D'] += 1
+        if is_away_win: outcome_counts['prob_A'] += 1
 
-    # --- Boolean Arrays for Goal Bands ---
-    is_goals_0_1 = (total_goals >= 0) & (total_goals <= 1)
-    is_goals_2_3 = (total_goals >= 2) & (total_goals <= 3)
-    is_goals_2_4 = (total_goals >= 2) & (total_goals <= 4)
-    is_goals_3_plus = total_goals >= 3
+        if is_btts_yes: outcome_counts['prob_BTTS_Y'] += 1
+        else: outcome_counts['prob_BTTS_N'] += 1
 
+        if is_1X: outcome_counts['prob_1X'] += 1
+        if is_X2: outcome_counts['prob_X2'] += 1
+        if is_12: outcome_counts['prob_12'] += 1
+        
+        # --- Over/Under Lines ---
+        for line in [0.5, 1.5, 2.5, 3.5, 4.5]:
+            if total_goals > line: outcome_counts[f'prob_O{str(line).replace(".", "")}'] += 1
+            else: outcome_counts[f'prob_U{str(line).replace(".", "")}'] += 1
+
+        # --- Compound Bets (Result + O/U) ---
+        for line in [1.5, 2.5, 3.5, 4.5]:
+            is_over = total_goals > line
+            line_str = str(line).replace(".", "")
+            if is_home_win and is_over: outcome_counts[f'prob_H_and_O{line_str}'] += 1
+            if is_home_win and not is_over: outcome_counts[f'prob_H_and_U{line_str}'] += 1
+            if is_draw and is_over: outcome_counts[f'prob_D_and_O{line_str}'] += 1
+            if is_draw and not is_over: outcome_counts[f'prob_D_and_U{line_str}'] += 1
+            if is_away_win and is_over: outcome_counts[f'prob_A_and_O{line_str}'] += 1
+            if is_away_win and not is_over: outcome_counts[f'prob_A_and_U{line_str}'] += 1
+        
+        # --- Compound Bets (Double Chance + O/U) ---
+        for line in [1.5, 2.5, 3.5, 4.5]:
+            is_over = total_goals > line
+            line_str = str(line).replace(".", "")
+            if is_1X and is_over: outcome_counts[f'prob_1X_and_O{line_str}'] += 1
+            if is_1X and not is_over: outcome_counts[f'prob_1X_and_U{line_str}'] += 1
+            if is_X2 and is_over: outcome_counts[f'prob_X2_and_O{line_str}'] += 1
+            if is_X2 and not is_over: outcome_counts[f'prob_X2_and_U{line_str}'] += 1
+            if is_12 and is_over: outcome_counts[f'prob_12_and_O{line_str}'] += 1
+            if is_12 and not is_over: outcome_counts[f'prob_12_and_U{line_str}'] += 1
+            
+        # --- Compound Bets (Result + BTTS) ---
+        if is_home_win and is_btts_yes: outcome_counts['prob_H_and_BTTS_Y'] += 1
+        if is_home_win and not is_btts_yes: outcome_counts['prob_H_and_BTTS_N'] += 1
+        if is_draw and is_btts_yes: outcome_counts['prob_D_and_BTTS_Y'] += 1
+        if is_draw and not is_btts_yes: outcome_counts['prob_D_and_BTTS_N'] += 1
+        if is_away_win and is_btts_yes: outcome_counts['prob_A_and_BTTS_Y'] += 1
+        if is_away_win and not is_btts_yes: outcome_counts['prob_A_and_BTTS_N'] += 1
+
+        # --- Compound Bets (Double Chance + BTTS) ---
+        if is_1X and is_btts_yes: outcome_counts['prob_1X_and_BTTS_Y'] += 1
+        if is_1X and not is_btts_yes: outcome_counts['prob_1X_and_BTTS_N'] += 1
+        if is_X2 and is_btts_yes: outcome_counts['prob_X2_and_BTTS_Y'] += 1
+        if is_X2 and not is_btts_yes: outcome_counts['prob_X2_and_BTTS_N'] += 1
+        if is_12 and is_btts_yes: outcome_counts['prob_12_and_BTTS_Y'] += 1
+        if is_12 and not is_btts_yes: outcome_counts['prob_12_and_BTTS_N'] += 1
+
+        # --- Compound Bets (O/U + BTTS) ---
+        for line in [2.5, 3.5]:
+            is_over = total_goals > line
+            line_str = str(line).replace(".", "")
+            if is_over and is_btts_yes: outcome_counts[f'prob_O{line_str}_and_BTTS_Y'] += 1
+            if is_over and not is_btts_yes: outcome_counts[f'prob_O{line_str}_and_BTTS_N'] += 1
+    
     # --- Calculate Probabilities ---
-    mc_probs = {}
+    total_sims = float(num_simulations)
+    probabilities = {key: count / total_sims for key, count in outcome_counts.items()}
     
-    # Expected Goals (from lambdas)
-    mc_probs['expected_HG'] = lambda_home
-    mc_probs['expected_AG'] = lambda_away
-
-    # Core Probabilities
-    mc_probs['prob_H'] = np.mean(is_H)
-    mc_probs['prob_D'] = np.mean(is_D)
-    mc_probs['prob_A'] = np.mean(is_A)
-    mc_probs['prob_1X'] = np.mean(is_1X)
-    mc_probs['prob_12'] = np.mean(is_12)
-    mc_probs['prob_X2'] = np.mean(is_X2)
-    mc_probs['prob_BTTS_Y'] = np.mean(is_BTTS_Y)
-    mc_probs['prob_BTTS_N'] = np.mean(is_BTTS_N)
-
-    # Goal Line Probabilities
-    for line in goal_lines:
-        mc_probs[f'prob_O{str(line).replace(".", "")}'] = np.mean(is_O[line])
-        mc_probs[f'prob_U{str(line).replace(".", "")}'] = np.mean(is_U[line])
-
-    # Goal Band Probabilities
-    mc_probs['prob_goals_0_1'] = np.mean(is_goals_0_1)
-    mc_probs['prob_goals_2_3'] = np.mean(is_goals_2_3)
-    mc_probs['prob_goals_2_4'] = np.mean(is_goals_2_4)
-    mc_probs['prob_goals_3_plus'] = np.mean(is_goals_3_plus)
-
-    # --- Compound Probabilities ---
-    # Result + Goal Lines
-    for line in goal_lines:
-        line_str = str(line).replace(".", "")
-        mc_probs[f'prob_H_and_O{line_str}'] = np.mean(is_H & is_O[line])
-        mc_probs[f'prob_D_and_O{line_str}'] = np.mean(is_D & is_O[line])
-        mc_probs[f'prob_A_and_O{line_str}'] = np.mean(is_A & is_O[line])
-        mc_probs[f'prob_H_and_U{line_str}'] = np.mean(is_H & is_U[line])
-        mc_probs[f'prob_D_and_U{line_str}'] = np.mean(is_D & is_U[line])
-        mc_probs[f'prob_A_and_U{line_str}'] = np.mean(is_A & is_U[line])
-
-    # Double Chance + Goal Lines
-    for line in goal_lines:
-        line_str = str(line).replace(".", "")
-        mc_probs[f'prob_1X_and_O{line_str}'] = np.mean(is_1X & is_O[line])
-        mc_probs[f'prob_12_and_O{line_str}'] = np.mean(is_12 & is_O[line])
-        mc_probs[f'prob_X2_and_O{line_str}'] = np.mean(is_X2 & is_O[line])
-        mc_probs[f'prob_1X_and_U{line_str}'] = np.mean(is_1X & is_U[line])
-        mc_probs[f'prob_12_and_U{line_str}'] = np.mean(is_12 & is_U[line])
-        mc_probs[f'prob_X2_and_U{line_str}'] = np.mean(is_X2 & is_U[line])
-
-    # Result + BTTS
-    mc_probs['prob_H_and_BTTS_Y'] = np.mean(is_H & is_BTTS_Y)
-    mc_probs['prob_D_and_BTTS_Y'] = np.mean(is_D & is_BTTS_Y)
-    mc_probs['prob_A_and_BTTS_Y'] = np.mean(is_A & is_BTTS_Y)
-    mc_probs['prob_H_and_BTTS_N'] = np.mean(is_H & is_BTTS_N)
-    mc_probs['prob_D_and_BTTS_N'] = np.mean(is_D & is_BTTS_N)
-    mc_probs['prob_A_and_BTTS_N'] = np.mean(is_A & is_BTTS_N)
-
-    # Double Chance + BTTS
-    mc_probs['prob_1X_and_BTTS_Y'] = np.mean(is_1X & is_BTTS_Y)
-    mc_probs['prob_12_and_BTTS_Y'] = np.mean(is_12 & is_BTTS_Y)
-    mc_probs['prob_X2_and_BTTS_Y'] = np.mean(is_X2 & is_BTTS_Y)
-    mc_probs['prob_1X_and_BTTS_N'] = np.mean(is_1X & is_BTTS_N)
-    mc_probs['prob_12_and_BTTS_N'] = np.mean(is_12 & is_BTTS_N)
-    mc_probs['prob_X2_and_BTTS_N'] = np.mean(is_X2 & is_BTTS_N)
-
-    # BTTS + Goal Lines
-    mc_probs['prob_O25_and_BTTS_Y'] = np.mean(is_O[2.5] & is_BTTS_Y)
-    mc_probs['prob_O25_and_BTTS_N'] = np.mean(is_O[2.5] & is_BTTS_N)
-    mc_probs['prob_O35_and_BTTS_Y'] = np.mean(is_O[3.5] & is_BTTS_Y)
-    mc_probs['prob_O35_and_BTTS_N'] = np.mean(is_O[3.5] & is_BTTS_N)
-
-    # --- Score Matrix (for plotting or detailed analysis) ---
-    # This part is computationally heavier, but useful for display.
-    # We only calculate it up to a reasonable score limit.
-    max_score_plot = 5
-    score_matrix = np.zeros((max_score_plot + 1, max_score_plot + 1))
-    # Use a faster method to populate the matrix
-    limited_hg = sim_hg[sim_hg <= max_score_plot]
-    limited_ag = sim_ag[sim_ag <= max_score_plot]
-    # We need to filter them together
-    valid_indices = (sim_hg <= max_score_plot) & (sim_ag <= max_score_plot)
-    coords_hg = sim_hg[valid_indices]
-    coords_ag = sim_ag[valid_indices]
-    
-    if len(coords_hg) > 0:
-        # Use numpy's histogram2d for efficient counting
-        score_hist, _, _ = np.histogram2d(coords_hg, coords_ag, bins=[np.arange(max_score_plot + 2), np.arange(max_score_plot + 2)])
-        score_matrix = score_hist / num_simulations
-    
-    score_matrix_probs = {f"prob_score_{h}-{a}": score_matrix[h, a] for h in range(max_score_plot + 1) for a in range(max_score_plot + 1)}
+    # --- Calculate Score Probabilities ---
+    score_probabilities = {f"prob_score_{key.replace('-', '_')}": val / total_sims for key, val in score_counts.items()}
 
     logger.info(f"Monte Carlo simulation complete ({num_simulations} iterations).")
-    
-    return mc_probs, score_matrix_probs
+    return probabilities, score_probabilities
 
 # --- Helper Function to Identify Unique Concepts ---
 def get_selection_concept(selection_key: str) -> Optional[Tuple]:
     """
-    Deconstructs a complex selection key into its constituent parts for easier processing.
+    Parses a complex selection key into a structured concept tuple.
     """
     # Remove prefixes first
     key = selection_key
@@ -1185,17 +1306,30 @@ def process_fixture_json(json_file_path: str) -> Optional[Dict[str, Any]]:
     # Add mc_score_probs to mc_probs temporarily for combined calculation if needed
     # Let's adjust calculate_combined_top_selections to handle nested score dicts
 
-    # Plotting
+    # Generate enhanced results with market analysis and plotting
     os.makedirs(PLOTS_DIR, exist_ok=True)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    
     if results:
         try:
-            # Ensure plotting function can handle the potentially missing `top_n_mc_selections` if it expects it
-            # Or update it to use `top_n_combined_selections` if relevant for the plot
-            create_combined_fixture_plot(results, PLOTS_DIR, max_goals_matrix=MC_MAX_SCORE_PLOT)
+            # Generate enhanced output file path
+            base_name = os.path.splitext(os.path.basename(json_file_path))[0]
+            enhanced_output_path = os.path.join(OUTPUT_DIR, f"{base_name}_enhanced_predictions.json")
+            
+            # Process and save enhanced results with market analysis
+            enhanced_results = process_and_save_enhanced_results(results, enhanced_output_path)
+            
+            # Generate plots with enhanced data
+            if MARKET_MAPPING_AVAILABLE:
+                create_combined_fixture_plot(enhanced_results, PLOTS_DIR, max_goals_matrix=MC_MAX_SCORE_PLOT)
+                logger.info(f"Generated comprehensive analysis plot for fixture {fixture_id}")
+            else:
+                logger.warning("Market mapping not available, skipping enhanced plotting")
+                
         except Exception as plot_err:
-            logger.error(f"Error during plotting for fixture {fixture_id}: {plot_err}", exc_info=True)
+            logger.error(f"Error during enhanced processing for fixture {fixture_id}: {plot_err}", exc_info=True)
 
-    logger.info(f"--- Finished Processing: {os.path.basename(json_file_path)} ---")
+    logger.info(f"--- Finished Enhanced Processing: {os.path.basename(json_file_path)} ---")
     return results
 
 # --- Main Execution Logic ---

@@ -259,7 +259,108 @@ def _plot_goal_pdfs_on_ax(ax, fixture_results: Dict[str, Any], max_goals_axis: i
                 bbox=dict(boxstyle='round,pad=0.3', fc='white', alpha=0.7))
 
 
-# --- Main Plotting Function ---
+# --- Helper: Plot Value Bets Analysis ---
+def _plot_value_bets_on_ax(ax, fixture_results: Dict[str, Any]):
+    """Draws the top value bets with edge analysis."""
+    best_bets = fixture_results.get("best_value_bets", [])
+    
+    if not best_bets:
+        ax.text(0.5, 0.5, "No Value Bets\nFound", ha='center', va='center', fontsize=10, color='red')
+        ax.set_title("Top Value Bets")
+        ax.set_xticks([])
+        ax.set_yticks([])
+        return
+
+    # Take top 10 bets for visualization
+    top_bets = best_bets[:10]
+    
+    # Create horizontal bar chart
+    y_pos = np.arange(len(top_bets))
+    edges = [bet.get('edge_percent', 0) for bet in top_bets]
+    colors = ['green' if edge > 5 else 'orange' if edge > 2 else 'lightcoral' for edge in edges]
+    
+    bars = ax.barh(y_pos, edges, color=colors, alpha=0.7)
+    
+    # Customize labels
+    labels = []
+    for bet in top_bets:
+        model = bet.get('model', 'Unknown')[:2]  # Short model name
+        selection = bet.get('selection', 'Unknown')
+        if len(selection) > 20:
+            selection = selection[:17] + "..."
+        labels.append(f"{model}: {selection}")
+    
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(labels, fontsize=8)
+    ax.set_xlabel('Edge %')
+    ax.set_title('Top Value Bets by Edge')
+    ax.grid(True, axis='x', linestyle='--', alpha=0.6)
+    
+    # Add edge percentage labels on bars
+    for i, (bar, edge) in enumerate(zip(bars, edges)):
+        width = bar.get_width()
+        ax.annotate(f'{edge:.1f}%',
+                    xy=(width, bar.get_y() + bar.get_height() / 2),
+                    xytext=(3, 0),  # 3 points horizontal offset
+                    textcoords="offset points",
+                    ha='left', va='center', fontsize=7)
+
+
+# --- Helper: Plot Market Coverage ---
+def _plot_market_coverage_on_ax(ax, fixture_results: Dict[str, Any]):
+    """Shows how many markets each model covers with positive edge."""
+    models = ['mc', 'analytical', 'bivariate']
+    model_names = ['Monte Carlo', 'Analytical Poisson', 'Bivariate Poisson']
+    
+    coverage_data = []
+    positive_edges = []
+    
+    for model in models:
+        analysis_key = f"{model}_market_analysis"
+        market_analysis = fixture_results.get(analysis_key, {})
+        
+        total_markets = len(market_analysis)
+        positive_edge_markets = sum(1 for analysis in market_analysis.values() 
+                                  if analysis.get('edge_percent', 0) > 0)
+        
+        coverage_data.append(total_markets)
+        positive_edges.append(positive_edge_markets)
+    
+    if sum(coverage_data) == 0:
+        ax.text(0.5, 0.5, "No Market Analysis\nAvailable", ha='center', va='center', 
+                fontsize=10, color='red')
+        ax.set_title("Market Coverage Analysis")
+        ax.set_xticks([])
+        ax.set_yticks([])
+        return
+    
+    x = np.arange(len(model_names))
+    width = 0.35
+    
+    bars1 = ax.bar(x - width/2, coverage_data, width, label='Total Markets', color='lightblue', alpha=0.7)
+    bars2 = ax.bar(x + width/2, positive_edges, width, label='Positive Edge', color='green', alpha=0.7)
+    
+    ax.set_xlabel('Prediction Models')
+    ax.set_ylabel('Number of Markets')
+    ax.set_title('Market Coverage & Value Opportunities')
+    ax.set_xticks(x)
+    ax.set_xticklabels(model_names, rotation=45, ha='right')
+    ax.legend()
+    ax.grid(True, axis='y', linestyle='--', alpha=0.6)
+    
+    # Add value labels on bars
+    for bars in [bars1, bars2]:
+        for bar in bars:
+            height = bar.get_height()
+            if height > 0:
+                ax.annotate(f'{int(height)}',
+                           xy=(bar.get_x() + bar.get_width() / 2, height),
+                           xytext=(0, 3),
+                           textcoords="offset points",
+                           ha='center', va='bottom', fontsize=8)
+
+
+# --- Main Plotting Function (Enhanced) ---
 def create_combined_fixture_plot(
     fixture_results: Dict[str, Any],
     output_dir: str,
@@ -267,7 +368,7 @@ def create_combined_fixture_plot(
     max_goals_pdf_axis: int = 8 # Max goals for PDF plot axis
 ):
     """
-    Generates and saves a single 2x2 plot combining key fixture insights and model comparisons.
+    Generates and saves enhanced plots combining fixture insights, model comparisons, and value bet analysis.
     """
     if not fixture_results:
         logger.warning("create_combined_fixture_plot received empty fixture_results.")
@@ -280,24 +381,56 @@ def create_combined_fixture_plot(
     # Sanitize filename
     plot_filename_base = f"fixture_{fixture_id}_{home_team}_vs_{away_team}_Analysis"
     plot_filename_base = "".join(c if c.isalnum() else "_" for c in plot_filename_base).replace("__", "_")
-    plot_path = os.path.join(output_dir, f"{plot_filename_base}.png")
+    
+    # Check if we have market analysis data to decide layout
+    has_market_analysis = any(key in fixture_results for key in 
+                             ['best_value_bets', 'mc_market_analysis', 'analytical_market_analysis', 'bivariate_market_analysis'])
+    
+    if has_market_analysis:
+        # Create 2x3 layout for enhanced analysis
+        fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+        plot_path = os.path.join(output_dir, f"{plot_filename_base}_Enhanced.png")
+        
+        # Row 1: Traditional Analysis
+        # Top-Left: MC Score Matrix
+        mesh = _plot_goal_matrix_on_ax(axes[0, 0], fixture_results, max_goals_matrix)
+        if mesh:
+            fig.colorbar(mesh, ax=axes[0, 0], label='MC Score Probability', fraction=0.046, pad=0.04)
 
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10)) # Increased figsize for better spacing with more complex plots
+        # Top-Middle: 1X2 Comparison
+        _plot_1x2_comparison_on_ax(axes[0, 1], fixture_results)
 
-    # --- Draw each subplot ---
-    # Top-Left: MC Score Matrix
-    mesh = _plot_goal_matrix_on_ax(axes[0, 0], fixture_results, max_goals_matrix)
-    if mesh: # Add colorbar if matrix was plotted
-        fig.colorbar(mesh, ax=axes[0, 0], label='MC Score Probability', fraction=0.046, pad=0.04)
+        # Top-Right: Market Comparison (O/U 2.5, BTTS)
+        _plot_market_comparison_on_ax(axes[0, 2], fixture_results)
 
-    # Top-Right: 1X2 Comparison
-    _plot_1x2_comparison_on_ax(axes[0, 1], fixture_results)
+        # Row 2: Enhanced Analysis
+        # Bottom-Left: Goal Distribution PDF
+        _plot_goal_pdfs_on_ax(axes[1, 0], fixture_results, max_goals_axis=max_goals_pdf_axis)
 
-    # Bottom-Left: Market Comparison (O/U 2.5, BTTS)
-    _plot_market_comparison_on_ax(axes[1, 0], fixture_results)
+        # Bottom-Middle: Value Bets Analysis
+        _plot_value_bets_on_ax(axes[1, 1], fixture_results)
 
-    # Bottom-Right: Goal Distribution PDF (using original lambdas)
-    _plot_goal_pdfs_on_ax(axes[1, 1], fixture_results, max_goals_axis=max_goals_pdf_axis)
+        # Bottom-Right: Market Coverage
+        _plot_market_coverage_on_ax(axes[1, 2], fixture_results)
+        
+    else:
+        # Use original 2x2 layout
+        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+        plot_path = os.path.join(output_dir, f"{plot_filename_base}.png")
+        
+        # Top-Left: MC Score Matrix
+        mesh = _plot_goal_matrix_on_ax(axes[0, 0], fixture_results, max_goals_matrix)
+        if mesh:
+            fig.colorbar(mesh, ax=axes[0, 0], label='MC Score Probability', fraction=0.046, pad=0.04)
+
+        # Top-Right: 1X2 Comparison
+        _plot_1x2_comparison_on_ax(axes[0, 1], fixture_results)
+
+        # Bottom-Left: Market Comparison (O/U 2.5, BTTS)
+        _plot_market_comparison_on_ax(axes[1, 0], fixture_results)
+
+        # Bottom-Right: Goal Distribution PDF (using original lambdas)
+        _plot_goal_pdfs_on_ax(axes[1, 1], fixture_results, max_goals_axis=max_goals_pdf_axis)
 
     # --- Overall Figure Title ---
     # Include both original and weighted lambdas in the title for comparison

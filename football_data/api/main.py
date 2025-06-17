@@ -1,15 +1,20 @@
 import sys
-from fastapi import FastAPI, HTTPException, Path
-from datetime import datetime
-import logging
 from pathlib import Path as PathLib
+import logging
+from datetime import datetime
+from fastapi import FastAPI, HTTPException, Path
+from pydantic import BaseModel, Field
+from typing import List, Dict, Any, Optional
 
-from football_data.api.pipeline_orchestrator import run_data_fetching, run_prediction_generation, run_edge_analysis
-
-# Add project root to system path to allow for sibling imports
+# Add project root to system path
 project_root = str(PathLib(__file__).resolve().parent.parent.parent)
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
+
+# Local imports
+from football_data.api.pipeline_orchestrator import run_full_pipeline
+from football_data.api.analysis_generator import FixtureAnalysisGenerator
+from football_data.get_data.api_football.db_mongo import MongoDBManager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -17,166 +22,138 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="AlphaSteam Football Data & Prediction API",
-    description="An API to orchestrate data fetching, prediction generation, and betting analysis.",
-    version="1.0.0"
+    description="Simple API with 2 endpoints: collect data and analyze predictions by date.",
+    version="2.0.0"
 )
 
-# --- Refactored Pipeline Logic (to be implemented) ---
-# In a real application, the logic from run_pipeline.py would be refactored
-# into importable functions. For now, we'll have placeholders.
+# --- Pydantic Models for API Schema ---
 
-async def trigger_data_fetching(date: datetime):
-    """Placeholder for the data fetching part of the pipeline."""
-    logger.info(f"Triggering data fetching for {date.strftime('%Y-%m-%d')}")
-    result = await run_data_fetching(date)
-    return result
+class FixtureInfo(BaseModel):
+    fixture_id: str
+    home_team: str
+    away_team: str
+    home_team_logo: Optional[str] = None
+    away_team_logo: Optional[str] = None
+    league_name: Optional[str] = None
+    date: Optional[str] = None
+    analysis_timestamp: str
 
-async def trigger_prediction_generation(date: datetime):
-    """Placeholder for the prediction generation part of the pipeline."""
-    logger.info(f"Triggering prediction generation for {date.strftime('%Y-%m-%d')}")
-    result = await run_prediction_generation(date)
-    return result
+class ExpectedGoals(BaseModel):
+    home: float
+    away: float
 
-async def trigger_edge_analysis(date: datetime):
-    """Placeholder for the edge/value analysis."""
-    logger.info(f"Triggering edge analysis for {date.strftime('%Y-%m-%d')}")
-    result = await run_edge_analysis(date)
-    return result
+class OutcomeProbabilities(BaseModel):
+    home_win: float
+    draw: float
+    away_win: float
+    over_2_5_goals: float
+    both_teams_score: float
 
+class PlotSeries(BaseModel):
+    name: str
+    data: List[float]
+
+class PlotData(BaseModel):
+    categories: List[str]
+    series: List[PlotSeries]
+
+class ExpectedGoalsComparison(BaseModel):
+    home_team: str
+    away_team: str
+    home_expected: float
+    away_expected: float
+
+class ComprehensivePlottingData(BaseModel):
+    match_outcome_chart: PlotData
+    goals_markets_chart: PlotData
+    btts_chart: PlotData
+    double_chance_chart: PlotData
+    expected_goals_comparison: ExpectedGoalsComparison
+
+class MatchAnalysis(BaseModel):
+    fixture_info: FixtureInfo
+    expected_goals: ExpectedGoals
+    match_outcome_probabilities: Dict[str, OutcomeProbabilities]
+    all_market_probabilities: Dict[str, Dict[str, Dict[str, float]]]  # model -> market -> selection -> probability
+    plotting_data: ComprehensivePlottingData
+
+class DateAnalysisResponse(BaseModel):
+    date: str
+    total_matches: int
+    matches: List[MatchAnalysis]
+    summary_stats: Dict[str, Any] = Field(default_factory=dict)
 
 # --- API Endpoints ---
 
 @app.get("/", tags=["Health"])
 async def root():
-    """
-    Root endpoint - API health check and basic information.
-    """
+    """Root endpoint for API health check."""
     return {
         "message": "AlphaSteam Football Data & Prediction API",
-        "status": "running",
-        "version": "1.0.0",
-        "docs": "/docs",
-        "redoc": "/redoc"
+        "status": "healthy",
+        "version": "2.0.0",
+        "endpoints": {
+            "collect_data": "POST /data/{date} - Collect and save games data for a specific date",
+            "analyze_predictions": "GET /predictions/{date} - Get predictions for all games on a specific date"
+        }
     }
 
-@app.get("/health", tags=["Health"])
-async def health_check():
-    """
-    Health check endpoint to verify API and database connectivity.
-    """
-    try:
-        from football_data.get_data.api_football.db_mongo import db_manager
-        # Simple DB connectivity check
-        status = db_manager.get_pipeline_status()
-        return {
-            "status": "healthy",
-            "database": "connected",
-            "timestamp": status["timestamp_utc"]
-        }
-    except Exception as e:
-        return {
-            "status": "unhealthy",
-            "database": "disconnected",
-            "error": str(e)
-        }
-
-@app.post("/data/{date}", tags=["Data Pipeline"])
-async def get_data(
-    date: str = Path(..., description="Target date in YYYY-MM-DD format.")
+@app.post("/data/{date}", tags=["Data Collection"])
+async def collect_games_data(
+    date: str = Path(..., description="Target date in YYYY-MM-DD format to collect games data.")
 ):
     """
-    Triggers the data pipeline to scrape games, enrich fixture details,
-    and fetch odds for a given date.
+    Endpoint 1: Collect games data for a specific date and save to MongoDB.
+    
+    This endpoint will:
+    1. Scrape all games for the specified date
+    2. Fetch detailed fixture information
+    3. Get odds data
+    4. Save everything to MongoDB
+    
+    Input: Date string (YYYY-MM-DD)
+    Output: Summary of collected data
     """
     try:
         target_date = datetime.strptime(date, "%Y-%m-%d")
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Please use YYYY-MM-DD.")
     
-    result = await trigger_data_fetching(target_date)
-    return result
-
-@app.post("/predictions/{date}", tags=["Data Pipeline"])
-async def craft_predictions(
-    date: str = Path(..., description="Target date in YYYY-MM-DD format.")
-):
-    """
-    Triggers the prediction pipeline for a given date. This should be run
-    after the data for that date has been successfully fetched.
-    Results are automatically saved to the predictions collection.
-    """
     try:
-        target_date = datetime.strptime(date, "%Y-%m-%d")
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format. Please use YYYY-MM-DD.")
+        logger.info(f"Starting data collection for {date}")
+        result = await run_full_pipeline(target_date)
         
-    result = await trigger_prediction_generation(target_date)
-    return result
-
-@app.post("/predictions/save/{date}", tags=["Data Pipeline"])
-async def save_predictions_to_db(
-    date: str = Path(..., description="Target date in YYYY-MM-DD format.")
-):
-    """
-    Generates predictions for a given date and saves them to the predictions collection.
-    This endpoint specifically focuses on saving prediction results to MongoDB.
-    """
-    try:
-        target_date = datetime.strptime(date, "%Y-%m-%d")
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format. Please use YYYY-MM-DD.")
-    
-    from football_data.api.pipeline_orchestrator import run_prediction_generation_and_save
-    
-    result = await run_prediction_generation_and_save(target_date)
-    return result
-
-@app.get("/analysis/edge/{date}", tags=["Analysis"])
-async def analyze_edge(
-    date: str = Path(..., description="Target date in YYYY-MM-DD format.")
-):
-    """
-    Analyzes the relationship between stored predictions and odds to find
-    value bets (edge). Returns a list of betting opportunities.
-    """
-    try:
-        target_date = datetime.strptime(date, "%Y-%m-%d")
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format. Please use YYYY-MM-DD.")
-        
-    result = await trigger_edge_analysis(target_date)
-    return result
-
-@app.get("/predictions/{fixture_id}", tags=["Analysis"])
-async def get_prediction_results(
-    fixture_id: str = Path(..., description="Fixture ID to get predictions for.")
-):
-    """
-    Retrieves stored prediction results for a specific fixture ID.
-    """
-    try:
-        from football_data.get_data.api_football.db_mongo import db_manager
-        
-        prediction_data = db_manager.get_prediction_results(fixture_id)
-        if not prediction_data:
-            raise HTTPException(status_code=404, detail=f"No prediction results found for fixture {fixture_id}")
+        # Get count of collected matches
+        db_manager = MongoDBManager()
+        fixture_ids = db_manager.get_match_fixture_ids_for_date(date)
+        db_manager.close_connection()
         
         return {
             "status": "success",
-            "fixture_id": fixture_id,
-            "predictions": prediction_data
+            "date": date,
+            "message": f"Data collection completed for {date}",
+            "matches_collected": len(fixture_ids) if fixture_ids else 0,
+            "details": result
         }
+        
     except Exception as e:
-        logger.error(f"Error retrieving predictions for fixture {fixture_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Error retrieving predictions: {str(e)}")
+        logger.error(f"Error collecting data for {date}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Data collection failed: {str(e)}")
 
-@app.get("/value-bets/{date}", tags=["Analysis"])
-async def find_value_bets(
-    date: str = Path(..., description="Target date in YYYY-MM-DD format.")
+@app.get("/predictions/{date}", tags=["Predictions Analysis"], response_model=DateAnalysisResponse)
+async def analyze_predictions_for_date(
+    date: str = Path(..., description="Target date in YYYY-MM-DD format to analyze predictions.")
 ):
     """
-    Finds value betting opportunities for a given date by analyzing
-    stored predictions against bookmaker odds.
+    Endpoint 2: Get all games from MongoDB for a date, run predictions, and return full JSON.
+    
+    This endpoint will:
+    1. Retrieve all games for the specified date from MongoDB
+    2. Run prediction analysis for each game
+    3. Return comprehensive JSON with all probabilities and chart data
+    
+    Input: Date string (YYYY-MM-DD)
+    Output: Complete analysis with predictions for all games
     """
     try:
         target_date = datetime.strptime(date, "%Y-%m-%d")
@@ -184,64 +161,70 @@ async def find_value_bets(
         raise HTTPException(status_code=400, detail="Invalid date format. Please use YYYY-MM-DD.")
     
     try:
-        from football_data.score_data.value_bet_finder import ValueBetFinder
+        logger.info(f"Starting predictions analysis for {date}")
         
-        finder = ValueBetFinder(bookmaker_name="Bet365")
-        results = finder.find_value_bets_for_date(date)
+        # Get all fixture IDs for the date
+        db_manager = MongoDBManager()
+        fixture_ids = db_manager.get_match_fixture_ids_for_date(date)
+        db_manager.close_connection()
         
-        return results
+        if not fixture_ids:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"No games found for {date}. Please collect data first using POST /data/{date}"
+            )
         
+        # Generate analysis for each fixture
+        matches_analysis = []
+        generator = FixtureAnalysisGenerator()
+        
+        for fixture_id in fixture_ids:
+            try:
+                analysis = await generator.generate_fixture_analysis(str(fixture_id))
+                if analysis:
+                    matches_analysis.append(analysis)
+                else:
+                    logger.warning(f"Could not generate analysis for fixture {fixture_id}")
+            except Exception as e:
+                logger.error(f"Error analyzing fixture {fixture_id}: {e}")
+                continue
+        
+        # Calculate summary stats
+        summary_stats = {
+            "total_fixtures_found": len(fixture_ids),
+            "successful_analyses": len(matches_analysis),
+            "failed_analyses": len(fixture_ids) - len(matches_analysis),
+            "analysis_timestamp": datetime.now().isoformat()
+        }
+        
+        if matches_analysis:
+            # Add some aggregate stats
+            home_wins = sum(1 for match in matches_analysis for model in match.get('match_outcome_probabilities', {}).values() if model.get('home_win', 0) > 0.5)
+            draws = sum(1 for match in matches_analysis for model in match.get('match_outcome_probabilities', {}).values() if model.get('draw', 0) > 0.5)
+            away_wins = sum(1 for match in matches_analysis for model in match.get('match_outcome_probabilities', {}).values() if model.get('away_win', 0) > 0.5)
+            
+            summary_stats.update({
+                "predicted_outcomes": {
+                    "home_wins_predicted": home_wins,
+                    "draws_predicted": draws,
+                    "away_wins_predicted": away_wins
+                }
+            })
+        
+        return {
+            "date": date,
+            "total_matches": len(matches_analysis),
+            "matches": matches_analysis,
+            "summary_stats": summary_stats
+        }
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error finding value bets for {date}: {e}")
-        raise HTTPException(status_code=500, detail=f"Error finding value bets: {str(e)}")
-
-@app.post("/value-bets/save/{date}", tags=["Analysis"])
-async def save_value_bets(
-    date: str = Path(..., description="Target date in YYYY-MM-DD format.")
-):
-    """
-    Finds value betting opportunities for a given date and saves them
-    to the betting papers collection in the database.
-    """
-    try:
-        target_date = datetime.strptime(date, "%Y-%m-%d")
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format. Please use YYYY-MM-DD.")
-    
-    try:
-        from football_data.score_data.value_bet_finder import ValueBetFinder
-        
-        finder = ValueBetFinder(bookmaker_name="Bet365")
-        results = finder.save_value_bets_to_db(date)
-        
-        return results
-        
-    except Exception as e:
-        logger.error(f"Error saving value bets for {date}: {e}")
-        raise HTTPException(status_code=500, detail=f"Error saving value bets: {str(e)}")
-
-@app.get("/value-bets/fixture/{fixture_id}", tags=["Analysis"])
-async def find_value_bets_for_fixture(
-    fixture_id: str = Path(..., description="Fixture ID to analyze for value bets.")
-):
-    """
-    Finds value betting opportunities for a specific fixture.
-    """
-    try:
-        from football_data.score_data.value_bet_finder import ValueBetFinder
-        
-        finder = ValueBetFinder(bookmaker_name="Bet365")
-        results = finder.find_value_bets_for_fixture(fixture_id)
-        
-        return results
-        
-    except Exception as e:
-        logger.error(f"Error finding value bets for fixture {fixture_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Error finding value bets: {str(e)}")
+        logger.error(f"Error analyzing predictions for {date}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Predictions analysis failed: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
-    # To run this API:
-    # uvicorn football_data.api.main:app --reload
-    logger.info("Starting Uvicorn server for AlphaSteam API.")
+    logger.info("Starting Uvicorn server for AlphaSteam API V2.")
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True) 

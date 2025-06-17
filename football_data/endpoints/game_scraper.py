@@ -60,6 +60,13 @@ class GameScraper:
         
         logger.info(f"Loaded {len(self.all_leagues)} leagues from league_id_mappings.py")
         
+        # Debug: Check if FIFA Club World Cup (ID 15) is loaded
+        if "15" in self.all_leagues:
+            logger.info(f"FIFA Club World Cup (ID 15) is loaded: {self.all_leagues['15']}")
+        else:
+            logger.warning("FIFA Club World Cup (ID 15) is NOT in all_leagues!")
+            logger.debug(f"Available league IDs: {list(self.all_leagues.keys())[:10]}...")
+        
        
         
         # Use all_leagues as the meaningful leagues (active leagues)
@@ -130,6 +137,9 @@ class GameScraper:
         else:
             # Exclude leagues not in our mapping
             logger.debug(f"Match excluded (league not in mapping): {home_team} vs {away_team} in {league_name} (ID: {league_id})")
+            # Special debug for FIFA Club World Cup
+            if league_id == "15":
+                logger.warning(f"FIFA Club World Cup match excluded! Available IDs: {list(self.all_leagues.keys())[:5]}...")
             return False
 
     def _fetch_standings(self, league_id: str, season: int, date_str: str) -> Dict:
@@ -204,13 +214,17 @@ class GameScraper:
             
             # Determine the correct season based on the date
             # Football seasons typically run from August to May/July
-            # For 2025 dates, we should use season 2024 (Aug 2024 - July 2025) or 2025 (Aug 2025 onwards)
+            # However, some tournaments like FIFA Club World Cup follow their own schedule
             current_year = date.year
             current_month = date.month
             
-            # For 2025, we need to handle the transition properly
-            if current_year == 2025:
-                if current_month <= 7:  # Jan-July 2025 = 2024-25 season
+            # Special handling for FIFA Club World Cup 2025 (June 15-27, 2025)
+            if (current_year == 2025 and current_month == 6 and 
+                15 <= date.day <= 27):
+                season = 2025  # FIFA Club World Cup 2025 uses season 2025
+                logger.info(f"Using season 2025 for FIFA Club World Cup dates")
+            elif current_year == 2025:
+                if current_month <= 7:  # Jan-July 2025 = 2024-25 season (except FIFA CWC)
                     season = 2024
                 else:  # Aug-Dec 2025 = 2025-26 season
                     season = 2025

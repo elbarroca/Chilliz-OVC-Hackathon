@@ -55,43 +55,75 @@ class FixtureDetailsFetcher:
             logger.error(f"Error making API request: {str(e)}")
             return {"status": "failed", "message": str(e)}
 
-    def get_fixture_details(self, fixture_id: int) -> Optional[Dict[str, Any]]:
+    def get_fixture_details(self, fixture_id: int, match_date: Optional[datetime] = None, season: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """
         Fetch detailed information for a specific fixture.
         
         Args:
             fixture_id (int): The ID of the fixture to fetch details for
-        
+            match_date (Optional[datetime]): The date of the match.
+            season (Optional[int]): The season of the match.
+
         Returns:
             Optional[Dict[str, Any]]: Dictionary containing fixture details or None if failed
         """
         try:
             # Prepare request parameters
-            params = {"fixture": fixture_id}
-            
+            params = {"id": fixture_id}
+
+            if season:
+                params['season'] = season
+
             # Get basic fixture information
             logger.info(f"Fetching basic info for fixture {fixture_id}")
-            basic_info = self._make_api_request("fixtures", params)
+            basic_info_response = self._make_api_request("fixtures", params)
+            basic_info = basic_info_response.get('response', [])
+            
+            if not basic_info:
+                logger.warning(f"No basic info found for fixture {fixture_id}")
+                return None
+
+            match_info_data = basic_info[0]
             
             # Get statistics
             logger.info(f"Fetching statistics for fixture {fixture_id}")
-            statistics = self._make_api_request("fixtures/statistics", params)
+            statistics_response = self._make_api_request("fixtures/statistics", {"fixture": fixture_id})
+            statistics = statistics_response.get('response', [])
             
             # Get events
             logger.info(f"Fetching events for fixture {fixture_id}")
-            events = self._make_api_request("fixtures/events", params)
+            events_response = self._make_api_request("fixtures/events", {"fixture": fixture_id})
+            events = events_response.get('response', [])
             
             # Get lineups
             logger.info(f"Fetching lineups for fixture {fixture_id}")
-            lineups = self._make_api_request("fixtures/lineups", params)
-            
-            # Combine all data
+            lineups_response = self._make_api_request("fixtures/lineups", {"fixture": fixture_id})
+            lineups = lineups_response.get('response', [])
+
+            # Combine all data into a structure similar to the desired one
             complete_data = {
                 '_id': str(fixture_id),
-                'basic_info': basic_info.get('response', []),
-                'statistics': statistics.get('response', []),
-                'events': events.get('response', []),
-                'lineups': lineups.get('response', []),
+                'fixture_id': str(fixture_id),
+                'date_str': match_date.strftime('%Y-%m-%d') if match_date else datetime.fromisoformat(match_info_data['fixture']['date'].replace('Z', '+00:00')).strftime('%Y-%m-%d'),
+                'date_utc': datetime.fromisoformat(match_info_data['fixture']['date'].replace('Z', '+00:00')),
+                'league_id': match_info_data['league']['id'],
+                'league_name': match_info_data['league']['name'],
+                'league_country': match_info_data['league']['country'],
+                'season': match_info_data['league']['season'],
+                'home_team_id': match_info_data['teams']['home']['id'],
+                'home_team_name': match_info_data['teams']['home']['name'],
+                'away_team_id': match_info_data['teams']['away']['id'],
+                'away_team_name': match_info_data['teams']['away']['name'],
+                'home_goals': match_info_data['goals']['home'],
+                'away_goals': match_info_data['goals']['away'],
+                'score_halftime': match_info_data['score']['halftime'],
+                'score_fulltime': match_info_data['score']['fulltime'],
+                'status_long': match_info_data['fixture']['status']['long'],
+                'status_short': match_info_data['fixture']['status']['short'],
+                'fixture_details': match_info_data,
+                'statistics_full': statistics,
+                'events': events,
+                'lineups': lineups,
                 'last_updated': datetime.utcnow().isoformat()
             }
             

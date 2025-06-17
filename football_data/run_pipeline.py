@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 import json
 from typing import List, Dict
+from football_data.score_data.extract_daily_games import DailyDataPreparer
 
 # Load environment variables from .env file
 try:
@@ -63,10 +64,9 @@ except Exception as e:
     sys.exit(1)
 
 try:
-    from football_data.score_data.extract_daily_games import DailyGameExtractor
-    print("✓ DailyGameExtractor imported successfully")
+    print("✓ DailyDataPreparer imported successfully")
 except Exception as e:
-    print(f"✗ Failed to import DailyGameExtractor: {e}")
+    print(f"✗ Failed to import DailyDataPreparer: {e}")
     sys.exit(1)
 
 try:
@@ -153,7 +153,7 @@ async def run_match_processing_for_fixture(
         # STEP 1: Enrich the fixture in 'matches' with detailed stats, events, lineups.
         # This merges data into the document created by the scraper.
         logger.info(f"Enriching fixture {fixture_id} with detailed data...")
-        fixture_details_fetcher.get_fixture_details(fixture_id)
+        fixture_details_fetcher.get_fixture_details(fixture_id, match_date=match_date, season=season)
         
         # STEP 2: Fetch data for processing (predictions, team stats for the season)
         logger.info(f"Fetching processable API data for fixture {fixture_id}...")
@@ -215,28 +215,35 @@ async def backfill_team_history(
         logger.info(f"Insufficient history for team {team_id} ({len(history)} matches found). Backfilling...")
         
         # Get the list of all fixture IDs for the team for the given season.
-        # This also saves the list to the 'team_season_fixtures' collection.
-        team_fixture_ids = team_fixtures_fetcher.get_and_save_team_fixtures(team_id, season)
+        team_fixtures_data = team_fixtures_fetcher.get_team_fixtures_from_db(team_id, season)
         
-        if team_fixture_ids:
-            # We only need to check the most recent fixtures that occurred before the current match.
-            # Filter fixtures to those before the match date and take the last 20.
-            relevant_fixtures = [
-                fix for fix in team_fixture_ids 
-                if db_manager.get_match_data(str(fix)) and datetime.fromisoformat(db_manager.get_match_data(str(fix))['match_info']['date'].replace('Z', '+00:00')) < match_date
-            ]
-            fixtures_to_check_ids = relevant_fixtures[-20:]
+        if not team_fixtures_data:
+            team_fixtures_data = team_fixtures_fetcher.get_and_save_team_fixtures(team_id, season)
 
-            # Check which of these fixtures are missing full details in the 'matches' collection.
-            # A simple check for existence is sufficient here. More complex logic could check for specific fields.
-            missing_fixture_ids = [fid for fid in fixtures_to_check_ids if not db_manager.check_match_exists(str(fid))]
+        if team_fixtures_data:
+            # Filter for fixtures that occurred before the current match_date
+            # The 'fixture' object from the API contains the date
+            past_fixtures = [
+                f for f in team_fixtures_data 
+                if 'fixture' in f and 'date' in f['fixture'] and datetime.fromisoformat(f['fixture']['date'].replace('Z', '+00:00')) < match_date
+            ]
+            
+            # Sort by date descending to get the most recent ones first
+            past_fixtures.sort(key=lambda x: x['fixture']['date'], reverse=True)
+            
+            # Check which of the last 20 historical fixtures are missing from our DB
+            fixtures_to_check = past_fixtures[:20]
+            missing_fixture_ids = [
+                f['fixture']['id'] for f in fixtures_to_check 
+                if not db_manager.check_match_exists(str(f['fixture']['id']))
+            ]
 
             if missing_fixture_ids:
                 logger.info(f"Fetching details for {len(missing_fixture_ids)} missing historical fixtures for team {team_id}.")
                 for fid in missing_fixture_ids:
                     # Fetch and save details for each missing fixture.
-                    # This is a synchronous call, which may block, but is simple.
-                    fixture_details_fetcher.get_fixture_details(fid)
+                    fixture_date = datetime.fromisoformat(next(item for item in fixtures_to_check if item["fixture"]["id"] == fid)['fixture']['date'].replace('Z', '+00:00'))
+                    fixture_details_fetcher.get_fixture_details(fid, match_date=fixture_date, season=season)
             
             # 3. After backfilling, retrieve the historical matches again to get an updated list.
             history = db_manager.get_historical_matches(team_id, match_date, limit=15)
@@ -343,7 +350,7 @@ async def main():
 
     # --- 3. Create Unified Data Files ---
     logger.info("\n--- Step 3: Creating unified data files for processed fixtures ---")
-    extractor = DailyGameExtractor()
+    extractor = DailyDataPreparer()
     unified_files_to_predict = []
     
     # We can run extraction for today and tomorrow again
