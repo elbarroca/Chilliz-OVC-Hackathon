@@ -3,244 +3,162 @@
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { TrendingUp, BarChart3, PieChart as PieChartIcon, Brain } from 'lucide-react';
-import { type AlphaAnalysis } from '@/types';
+import { Brain, Target, TrendingUp, Goal, Shield } from 'lucide-react';
+import { type MatchWithAnalysis } from '@/types';
 
 interface PredictionChartProps {
-  alphaAnalysis: AlphaAnalysis;
-  teamAName: string;
-  teamBName: string;
+  match: MatchWithAnalysis | null;
 }
 
-// Define colors for our charts
-const COLORS = ['#3b82f6', '#64748b', '#ef4444']; // Blue for Home, Slate for Draw, Red for Away
-const PIE_COLORS = ['#3b82f6', '#64748b', '#ef4444'];
+const COLORS = {
+  home: '#3b82f6', // Blue-500
+  draw: '#64748b', // Slate-500
+  away: '#ef4444', // Red-500
+  yes: '#22c55e',  // Green-500
+  no: '#8b5cf6',   // Violet-500
+  over: '#f97316', // Orange-500
+  under: '#06b6d4' // Cyan-500
+};
 
-export function PredictionChart({ alphaAnalysis, teamAName, teamBName }: PredictionChartProps) {
-  // Transform the data for bar chart
-  const barChartData = alphaAnalysis.matchOutcomeChart.categories.map((category, index) => ({
-    name: category,
-    value: alphaAnalysis.matchOutcomeChart.series[0].data[index] * 100,
-    fullName: category === 'Home Win' ? `${teamAName} Win` : 
-              category === 'Away Win' ? `${teamBName} Win` : 'Draw'
-  }));
+// Reusable Card component for charts
+const ChartCard = ({ title, badgeText, icon, children }: { title: string, badgeText: string, icon: React.ReactNode, children: React.ReactNode }) => (
+    <Card className="bg-gradient-to-br from-[#1A1A1A] to-[#0D0D0D] border-gray-800 hover:border-gray-700/50 transition-all duration-300 h-full">
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="flex items-center gap-2 text-base font-semibold text-gray-300">
+                {icon}
+                {title}
+            </CardTitle>
+            <Badge variant="outline" className="bg-gray-700/50 text-gray-400 border-gray-600 text-xs">
+                {badgeText}
+            </Badge>
+        </CardHeader>
+        <CardContent>
+            {children}
+        </CardContent>
+    </Card>
+);
 
-  // Transform the data for pie chart
-  const pieChartData = alphaAnalysis.matchOutcomeChart.categories.map((category, index) => ({
-    name: category === 'Home Win' ? teamAName : 
-          category === 'Away Win' ? teamBName : 'Draw',
-    value: alphaAnalysis.matchOutcomeChart.series[0].data[index] * 100,
-    color: COLORS[index]
-  }));
+// Expected Goals Chart
+const ExpectedGoalsChart = ({ match }: { match: MatchWithAnalysis }) => {
+    if (!match.analysisData) return null;
+    const data = [
+        { name: match.teamA.name, xG: match.analysisData.expected_goals.home, color: COLORS.home },
+        { name: match.teamB.name, xG: match.analysisData.expected_goals.away, color: COLORS.away }
+    ];
+    const maxVal = Math.max(...data.map(d => d.xG)) + 0.5;
 
-  // Model comparison data if available
-  const modelComparisonData = alphaAnalysis.modelComparison ? [
-    {
-      model: 'Monte Carlo',
-      home: alphaAnalysis.modelComparison.monte_carlo.home * 100,
-      draw: alphaAnalysis.modelComparison.monte_carlo.draw * 100,
-      away: alphaAnalysis.modelComparison.monte_carlo.away * 100,
-    },
-    {
-      model: 'XGBoost',
-      home: alphaAnalysis.modelComparison.xgboost.home * 100,
-      draw: alphaAnalysis.modelComparison.xgboost.draw * 100,
-      away: alphaAnalysis.modelComparison.xgboost.away * 100,
-    },
-    {
-      model: 'Neural Network',
-      home: alphaAnalysis.modelComparison.neural_network.home * 100,
-      draw: alphaAnalysis.modelComparison.neural_network.draw * 100,
-      away: alphaAnalysis.modelComparison.neural_network.away * 100,
-    }
-  ] : null;
+    return (
+        <ChartCard title="Expected Goals (xG)" badgeText="AI Prediction" icon={<Target className="w-4 h-4 text-blue-400" />}>
+            <ResponsiveContainer width="100%" height={120}>
+                <BarChart data={data} layout="vertical" margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                    <XAxis type="number" hide domain={[0, maxVal]} />
+                    <YAxis type="category" dataKey="name" hide width={60} />
+                    <Bar dataKey="xG" barSize={25} radius={[4, 4, 4, 4]}>
+                        {data.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
+                    </Bar>
+                </BarChart>
+            </ResponsiveContainer>
+             <div className="mt-4 grid grid-cols-2 gap-4 text-center">
+                 {data.map((d) => (
+                   <div key={d.name} className="p-3 rounded-lg bg-gray-800/50">
+                     <div className="text-sm text-gray-400">{d.name}</div>
+                     <div className="text-2xl font-bold" style={{ color: d.color }}>{d.xG.toFixed(2)}</div>
+                   </div>
+                 ))}
+             </div>
+        </ChartCard>
+    );
+};
 
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-gray-900 border border-gray-700 rounded-lg p-3 shadow-xl">
-          <p className="text-white font-medium">{label}</p>
-          <p className="text-blue-400">
-            Probability: <span className="font-bold">{payload[0].value.toFixed(1)}%</span>
-          </p>
+// Match Outcome Chart
+const MatchOutcomeChart = ({ match }: { match: MatchWithAnalysis }) => {
+    if (!match.analysisData) return null;
+    const probs = match.analysisData.match_outcome_probabilities.monte_carlo;
+    const data = [
+      { name: `${match.teamA.name} Win`, value: probs.home_win, color: COLORS.home },
+      { name: 'Draw', value: probs.draw, color: COLORS.draw },
+      { name: `${match.teamB.name} Win`, value: probs.away_win, color: COLORS.away }
+    ];
+
+    return (
+         <ChartCard title="Match Outcome Probabilities" badgeText="Monte Carlo" icon={<Brain className="w-4 h-4 text-purple-400" />}>
+             <ResponsiveContainer width="100%" height={120}>
+                <PieChart>
+                    <Pie data={data} cx="50%" cy="50%" innerRadius={35} outerRadius={50} paddingAngle={5} dataKey="value" stroke="none">
+                        {data.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
+                    </Pie>
+                </PieChart>
+             </ResponsiveContainer>
+             <div className="mt-4 space-y-2">
+                 {data.map(d => (
+                     <div key={d.name} className="flex justify-between items-center text-sm">
+                         <div className="flex items-center gap-2">
+                             <div className="w-2 h-2 rounded-full" style={{ backgroundColor: d.color }}></div>
+                             <span className="text-gray-300">{d.name}</span>
+                         </div>
+                         <span className="font-mono font-bold text-white">{(d.value * 100).toFixed(1)}%</span>
+                     </div>
+                 ))}
+             </div>
+         </ChartCard>
+    )
+}
+
+// Side Market Chart (BTTS, Over/Under)
+const SideMarketChart = ({ title, icon, data, colors }: { title: string, icon: React.ReactNode, data: {name: string, value: number}[], colors: string[] }) => (
+    <ChartCard title={title} badgeText="Market Odds" icon={icon}>
+        <div className="space-y-3 pt-4">
+        {data.map((d, i) => (
+            <div key={d.name}>
+                <div className="flex justify-between items-center mb-1 text-sm">
+                    <span className="text-gray-300">{d.name}</span>
+                    <span className="font-mono font-bold text-white">{(d.value * 100).toFixed(1)}%</span>
+                </div>
+                <div className="w-full bg-gray-700/50 rounded-full h-2.5">
+                    <div className="h-2.5 rounded-full" style={{ width: `${d.value * 100}%`, backgroundColor: colors[i] }}></div>
+                </div>
+            </div>
+        ))}
         </div>
-      );
-    }
-    return null;
-  };
+    </ChartCard>
+);
 
-  const CustomPieTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-gray-900 border border-gray-700 rounded-lg p-3 shadow-xl">
-          <p className="text-white font-medium">{payload[0].name}</p>
-          <p className="text-blue-400">
-            <span className="font-bold">{payload[0].value.toFixed(1)}%</span>
-          </p>
-        </div>
-      );
-    }
-    return null;
-  };
+export function PredictionChart({ match }: PredictionChartProps) {
+  if (!match || !match.analysisData) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {[...Array(4)].map((_, i) => (
+            <Card key={i} className="bg-gradient-to-br from-[#1A1A1A] to-[#0D0D0D] border-gray-800 h-[240px]">
+                <CardContent className="p-6 flex items-center justify-center">
+                    <div className="text-center text-gray-500">
+                        <div className="animate-pulse w-16 h-4 bg-gray-700 rounded-md mx-auto mb-2"></div>
+                        <div className="animate-pulse w-24 h-3 bg-gray-700 rounded-md mx-auto"></div>
+                    </div>
+                </CardContent>
+            </Card>
+        ))}
+      </div>
+    );
+  }
+  
+  const bttsProbs = match.analysisData.match_outcome_probabilities.monte_carlo;
+  const bttsData = [
+      { name: 'Yes', value: bttsProbs.both_teams_score },
+      { name: 'No', value: 1 - bttsProbs.both_teams_score }
+  ];
+
+  const overUnderProbs = match.analysisData.match_outcome_probabilities.monte_carlo;
+  const overUnderData = [
+      { name: 'Over 2.5', value: overUnderProbs.over_2_5_goals },
+      { name: 'Under 2.5', value: 1 - overUnderProbs.over_2_5_goals }
+  ];
 
   return (
-    <div className="space-y-6">
-      {/* Expected Goals Card */}
-      <Card className="bg-gradient-to-br from-[#1A1A1A] to-[#0D0D0D] border-gray-800">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-xl">
-            <TrendingUp className="w-5 h-5 text-blue-400" />
-            Expected Goals (xG)
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 gap-6">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-white mb-1">
-                {alphaAnalysis.expectedGoals.home.toFixed(2)}
-              </div>
-              <div className="text-sm text-gray-400">{teamAName}</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-white mb-1">
-                {alphaAnalysis.expectedGoals.away.toFixed(2)}
-              </div>
-              <div className="text-sm text-gray-400">{teamBName}</div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Main Prediction Chart */}
-      <Card className="bg-gradient-to-br from-[#1A1A1A] to-[#0D0D0D] border-gray-800">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-xl">
-            <Brain className="w-5 h-5 text-blue-400" />
-            Alpha Engine: Match Outcome Probability
-            <Badge className="bg-blue-900/50 text-blue-300 border-blue-700">
-              {alphaAnalysis.matchOutcomeChart.series[0].name}
-            </Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Tabs defaultValue="bar" className="w-full">
-            <TabsList className="grid w-full grid-cols-2 bg-gray-800/50">
-              <TabsTrigger value="bar" className="flex items-center gap-2">
-                <BarChart3 className="w-4 h-4" />
-                Bar Chart
-              </TabsTrigger>
-              <TabsTrigger value="pie" className="flex items-center gap-2">
-                <PieChartIcon className="w-4 h-4" />
-                Pie Chart
-              </TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="bar" className="mt-6">
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart
-                  data={barChartData}
-                  margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                  barCategoryGap="20%"
-                >
-                  <XAxis
-                    dataKey="fullName"
-                    stroke="#888888"
-                    fontSize={12}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    stroke="#888888"
-                    fontSize={12}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={(value) => `${value}%`}
-                  />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Bar dataKey="value" radius={[8, 8, 0, 0]}>
-                    {barChartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </TabsContent>
-            
-            <TabsContent value="pie" className="mt-6">
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={pieChartData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={100}
-                    paddingAngle={5}
-                    dataKey="value"
-                  >
-                    {pieChartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index]} />
-                    ))}
-                  </Pie>
-                  <Tooltip content={<CustomPieTooltip />} />
-                  <Legend 
-                    wrapperStyle={{ color: '#FFF' }}
-                    formatter={(value, entry) => `${value}: ${entry.payload?.value.toFixed(1)}%`}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
-
-      {/* Model Comparison Chart (if data is available) */}
-      {modelComparisonData && (
-        <Card className="bg-gradient-to-br from-[#1A1A1A] to-[#0D0D0D] border-gray-800">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-xl">
-              <BarChart3 className="w-5 h-5 text-green-400" />
-              Model Comparison
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart
-                data={modelComparisonData}
-                margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-              >
-                <XAxis
-                  dataKey="model"
-                  stroke="#888888"
-                  fontSize={12}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <YAxis
-                  stroke="#888888"
-                  fontSize={12}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={(value) => `${value}%`}
-                />
-                <Tooltip
-                  contentStyle={{
-                    background: '#111',
-                    border: '1px solid #333',
-                    borderRadius: '0.5rem',
-                  }}
-                  labelStyle={{ color: '#FFF' }}
-                />
-                <Legend wrapperStyle={{ color: '#FFF' }} />
-                <Bar dataKey="home" fill="#3b82f6" name={`${teamAName} Win`} radius={[2, 2, 0, 0]} />
-                <Bar dataKey="draw" fill="#64748b" name="Draw" radius={[2, 2, 0, 0]} />
-                <Bar dataKey="away" fill="#ef4444" name={`${teamBName} Win`} radius={[2, 2, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      )}
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <ExpectedGoalsChart match={match} />
+        <MatchOutcomeChart match={match} />
+        <SideMarketChart title="Both Teams to Score" icon={<Shield className="w-4 h-4 text-green-400" />} data={bttsData} colors={[COLORS.yes, COLORS.no]} />
+        <SideMarketChart title="Over/Under 2.5 Goals" icon={<Goal className="w-4 h-4 text-orange-400" />} data={overUnderData} colors={[COLORS.over, COLORS.under]} />
     </div>
   );
 } 

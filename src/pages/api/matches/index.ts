@@ -1,76 +1,66 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import clientPromise from '@/lib/mongo';
-import { type Match, type Team } from '@/types';
+import { type Match, type MatchAnalysisData, type Team } from '@/types';
 
-// Helper to transform the raw MongoDB document into our frontend Match type
-function transformMatch(doc: any): Match {
-  return {
-    _id: doc._id.toString(),
-    matchId: doc.fixture_id,
-    teamA: {
-      name: doc.home_team_name,
-      slug: doc.home_team_name.toLowerCase().replace(/\s+/g, '-'),
-      logoUrl: doc.teams?.home?.logo || 'default_logo_url.png', // Fallback logo
-    },
-    teamB: {
-      name: doc.away_team_name,
-      slug: doc.away_team_name.toLowerCase().replace(/\s+/g, '-'),
-      logoUrl: doc.teams?.away?.logo || 'default_logo_url.png', // Fallback logo
-    },
-    matchTime: doc.match_date,
-    league: doc.league?.name,
-    status: doc.fixture_status === 'NS' ? 'UPCOMING' : 'ENDED', // Map status
-    alphaPredictions: {
-      winA_prob: parseFloat(doc.predictions?.[0]?.predictions?.percent?.home?.replace('%','')) / 100 || 0,
-      draw_prob: parseFloat(doc.predictions?.[0]?.predictions?.percent?.draw?.replace('%','')) / 100 || 0,
-      winB_prob: parseFloat(doc.predictions?.[0]?.predictions?.percent?.away?.replace('%','')) / 100 || 0,
-    },
-  };
-}
+/**
+ * Transforms a match analysis document from MongoDB into the `Match` type
+ * used for list views on the frontend.
+ * @param doc The document from the `match_analysis` collection.
+ * @returns A `Match` object.
+ */
+function transformAnalysisToMatch(doc: MatchAnalysisData): Match {
+  const { fixture_info, match_outcome_probabilities } = doc;
 
-// New transformer for 'match_processor' documents for the list view
-function transformProcessorMatch(doc: any): Match {
-  const home_prob = parseFloat(doc.predictions?.[0]?.predictions?.percent?.home?.replace('%', '')) / 100 || 0;
-  const draw_prob = parseFloat(doc.predictions?.[0]?.predictions?.percent?.draw?.replace('%', '')) / 100 || 0;
-  const away_prob = parseFloat(doc.predictions?.[0]?.predictions?.percent?.away?.replace('%', '')) / 100 || 0;
-  
   const teamA: Team = {
-      name: doc.home_team_name,
-      slug: doc.home_team_name.toLowerCase().replace(/\s+/g, '-'),
-      logoUrl: doc.home_stats?.team?.logo || '',
-  };
-  
-  const teamB: Team = {
-    name: doc.away_team_name,
-    slug: doc.away_team_name.toLowerCase().replace(/\s+/g, '-'),
-    logoUrl: doc.away_stats?.team?.logo || '',
+    name: fixture_info.home_team,
+    slug: fixture_info.home_team.toLowerCase().replace(/\s+/g, '-'),
+    logoUrl: fixture_info.home_team_logo || '',
   };
 
+  const teamB: Team = {
+    name: fixture_info.away_team,
+    slug: fixture_info.away_team.toLowerCase().replace(/\s+/g, '-'),
+    logoUrl: fixture_info.away_team_logo || '',
+  };
+  
+  const mainPredictions = match_outcome_probabilities?.monte_carlo || {
+    home_win: 0, draw: 0, away_win: 0
+  };
+  
+  const matchDate = new Date(fixture_info.date || Date.now());
+  const now = new Date();
+  const status = matchDate < now ? 'ENDED' : 'UPCOMING';
+
   return {
-    _id: doc._id.toString(), // The string fixture_id
-    matchId: parseInt(doc.fixture_id || doc._id, 10),
+    _id: fixture_info.fixture_id.toString(),
+    matchId: parseInt(fixture_info.fixture_id, 10),
     teamA,
     teamB,
-    matchTime: doc.match_date.toISOString(),
-    league: doc.home_stats?.league?.name || doc.away_stats?.league?.name,
-    status: 'ENDED',
-    alphaPredictions: {
-      winA_prob: home_prob,
-      draw_prob: draw_prob,
-      winB_prob: away_prob,
+    matchTime: matchDate.toISOString(),
+    league: {
+      name: fixture_info.league_name || 'Special Event',
+      logoUrl: '', // League logo not available in analysis data
     },
+    status,
+    alphaPredictions: {
+      winA_prob: mainPredictions.home_win,
+      draw_prob: mainPredictions.draw,
+      winB_prob: mainPredictions.away_win,
+    },
+    analysisData: doc, // Pass the full analysis data
   };
 }
 
-interface MatchProcessorDocument {
-  _id: string;
-  [key: string]: any;
+interface PredictionsDocument {
+  date: string;
+  total_matches: number;
+  matches: MatchAnalysisData[];
+  summary_stats: any;
 }
-
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse
+  res: NextApiResponse<Match[] | { error: string, details?: string }>
 ) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', ['GET']);
@@ -79,72 +69,49 @@ export default async function handler(
 
   try {
     const client = await clientPromise;
-    const db = client.db('alphastakes'); 
+    const db = client.db('Alpha');
+    const predictionsCollection = db.collection<PredictionsDocument>('predictions');
     const { type, date } = req.query;
 
+    let queryDate: string;
+
     if (type === 'past') {
-      const matchProcessorCollection = db.collection<MatchProcessorDocument>('match_processor');
       if (typeof date !== 'string') {
         return res.status(400).json({ error: 'Date parameter is required for past matches.' });
       }
-
-      // Querying with strings to handle potential data type mismatch in DB
-      const startDateStr = `${date}T00:00:00.000+00:00`;
-      
-      const tempDate = new Date(date);
-      tempDate.setUTCDate(tempDate.getUTCDate() + 1);
-      const endDateStr = tempDate.toISOString().split('T')[0] + 'T00:00:00.000+00:00';
-
-      const query = {
-        match_date: {
-          $gte: startDateStr,
-          $lt: endDateStr,
-        }
-      };
-
-      // --- Start Debug Logging ---
-      console.log(`[PAST_MATCHES] Querying 'match_processor' for date: ${date}`);
-      console.log('[PAST_MATCHES] MongoDB Query (string-based):', JSON.stringify(query, null, 2));
-      // --- End Debug Logging ---
-
-      const processorDocs = await matchProcessorCollection.find(query).sort({ match_date: 1 }).toArray();
-
-      // --- Start Debug Logging ---
-      console.log(`[PAST_MATCHES] Found ${processorDocs.length} documents.`);
-      // --- End Debug Logging ---
-
-      const matches: Match[] = processorDocs.map(transformProcessorMatch);
-      return res.status(200).json(matches);
+      queryDate = date;
+    } else { // Default to upcoming matches
+      queryDate = new Date().toISOString().split('T')[0];
     }
+    
+    // Fetch the single document for the given date.
+    let predictionsDoc = await predictionsCollection.findOne({ date: queryDate });
 
-    // --- Default to upcoming matches ---
-    const matchesCollection = db.collection('matches');
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
-
-    const tomorrow = new Date(today);
-    tomorrow.setUTCDate(today.getUTCDate() + 1);
-
-    const matchesCursor = matchesCollection.find({
-      match_date: {
-        $gte: today.toISOString(),
-        $lt: tomorrow.toISOString(),
-      },
-      home_team_name: { $exists: true },
-      away_team_name: { $exists: true },
-    }).sort({ match_date: 1 });
-
-    const rawMatches = await matchesCursor.toArray();
-
-    if (rawMatches.length === 0) {
+    // If no document is found for the given date, try to find the most recent one.
+    if (!predictionsDoc) {
+      console.log(`No predictions document for date: ${queryDate}. Finding most recent.`);
+      const latestDoc = await predictionsCollection.find().sort({ date: -1 }).limit(1).toArray();
+      if (latestDoc.length > 0) {
+        predictionsDoc = latestDoc[0];
+        console.log(`Found most recent predictions from date: ${predictionsDoc.date}`);
+      }
+    }
+    
+    if (!predictionsDoc || predictionsDoc.matches.length === 0) {
+      console.log(`No predictions documents found at all.`);
       return res.status(200).json([]);
     }
 
-    const matches: Match[] = rawMatches.map(transformMatch);
+    // The document contains an array of matches; we transform each one.
+    const matches: Match[] = predictionsDoc.matches.map(transformAnalysisToMatch);
+
+    // Sort matches by time as an extra step, since they are nested now.
+    matches.sort((a, b) => new Date(a.matchTime).getTime() - new Date(b.matchTime).getTime());
+    
     return res.status(200).json(matches);
 
   } catch (e) {
-    console.error('Database Error:', e);
+    console.error('Database Error in /api/matches:', e);
     const error = e as Error;
     return res.status(500).json({ 
         error: 'Failed to fetch matches from the database.',

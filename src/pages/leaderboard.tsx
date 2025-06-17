@@ -8,13 +8,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { type LeaderboardEntry } from "@/types";
 import { Trophy, ShieldCheck, BarChart2, TrendingUp, Users, Target, Crown, Medal, Award } from "lucide-react";
-import { mockLeaderboardData } from "@/lib/mockData";
 
 const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 const LeaderboardPage: NextPage = () => {
   const { data: leaderboard, error, isLoading } = useSWR<LeaderboardEntry[]>('/api/leaderboard', fetcher, {
-    fallbackData: mockLeaderboardData, // Use mock data as fallback
+    fallbackData: [],
     revalidateOnFocus: false
   });
 

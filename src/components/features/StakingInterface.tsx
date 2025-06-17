@@ -1,167 +1,82 @@
 'use client';
 
-import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { useAccount, useWriteContract } from 'wagmi';
-import { parseEther } from 'viem';
-import { contractAddress, contractAbi } from '@/lib/contants'; // Your contract constants
+import { Input } from '@/components/ui/input';
 import { Match } from '@/types';
-import { Heart, Bot, TrendingUp, Users, Zap, DollarSign } from 'lucide-react';
+import { Heart, Bot, Users, Zap, Goal, Shield, ChevronDown, Plus, Wallet } from 'lucide-react';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { useState, useEffect, useRef } from 'react';
 
-// Mock pool data - in real app this would come from on-chain reads
-const MOCK_POOL_DATA = {
-  market: { 
-    total: 1500, 
-    teamA: { payout: 1.85, staked: 800 },
-    draw: { payout: 3.20, staked: 300 },
-    teamB: { payout: 4.50, staked: 400 }
-  },
-  alpha: { 
-    total: 850, 
-    teamA: { payout: 1.65, staked: 500 },
-    draw: { payout: 3.80, staked: 150 },
-    teamB: { payout: 5.10, staked: 200 }
-  },
+export interface ParlaySelectionDetails {
+    poolType: 'market' | 'alpha' | 'btts' | 'goals';
+    matchId: string;
+    matchName: string;
+    selectionName: string;
+    selectionId: number | string;
+    odds: number;
+}
+
+interface StakingInterfaceProps {
+    match: Match;
+    onSelectBet?: (details: ParlaySelectionDetails) => void;
+    onPlaceSingleBet?: (selection: ParlaySelectionDetails, amount: number) => void;
+    parlaySelections?: ParlaySelectionDetails[];
+}
+
+const generateDynamicMarketData = (matchId: string) => {
+    const hash = matchId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    return {
+        market: {
+            total: 1200 + (hash % 500),
+            teamA: { payout: (1.5 + (hash % 10) / 10), staked: 400 + (hash % 200) },
+            draw: { payout: (3.0 + (hash % 5) / 10), staked: 200 + (hash % 100) },
+            teamB: { payout: (4.0 + (hash % 15) / 10), staked: 300 + (hash % 150) },
+        },
+        alpha: {
+            total: 800 + (hash % 300),
+            teamA: { payout: (1.6 + (hash % 8) / 10), staked: 300 + (hash % 100) },
+            draw: { payout: (3.5 + (hash % 6) / 10), staked: 150 + (hash % 80) },
+            teamB: { payout: (4.8 + (hash % 12) / 10), staked: 250 + (hash % 120) },
+        },
+        btts: {
+            yes: { payout: 1.80 },
+            no: { payout: 1.90 },
+        },
+        goals: {
+            'o1.5': { payout: 1.45 },
+            'u1.5': { payout: 2.55 },
+            'o2.5': { payout: 2.10 },
+            'u2.5': { payout: 1.70 },
+            'o3.5': { payout: 3.50 },
+            'u3.5': { payout: 1.30 },
+        }
+    };
 };
 
-interface StakeModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  poolType: 'market' | 'alpha';
-  outcome: string;
-  payout: number;
-  onConfirm: (amount: string) => void;
-}
+export function StakingInterface({ match, onSelectBet, onPlaceSingleBet, parlaySelections = [] }: StakingInterfaceProps) {
+  const dynamicMarketData = generateDynamicMarketData(match._id);
+  const [selectedBet, setSelectedBet] = useState<ParlaySelectionDetails | null>(null);
+  const [singleBetAmount, setSingleBetAmount] = useState('');
+  const [showBettingOptions, setShowBettingOptions] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-function StakeModal({ isOpen, onClose, poolType, outcome, payout, onConfirm }: StakeModalProps) {
-  const [amount, setAmount] = useState('');
-  
-  if (!isOpen) return null;
+  // Close betting options when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setShowBettingOptions(null);
+        setSelectedBet(null);
+        setSingleBetAmount('');
+      }
+    };
 
-  const handleConfirm = () => {
-    if (amount && parseFloat(amount) > 0) {
-      onConfirm(amount);
-      setAmount('');
-      onClose();
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-md bg-gradient-to-br from-[#1A1A1A] to-black border-gray-700">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            {poolType === 'market' ? <Heart className="text-red-400" size={20} /> : <Bot className="text-gray-400" size={20} />}
-            Confirm Stake
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="p-4 bg-gray-900/50 rounded-lg border border-gray-700">
-            <div className="text-sm text-gray-400 mb-1">Pool Type</div>
-            <div className="font-bold text-white capitalize">{poolType} Pool</div>
-          </div>
-          
-          <div className="p-4 bg-gray-900/50 rounded-lg border border-gray-700">
-            <div className="text-sm text-gray-400 mb-1">Prediction</div>
-            <div className="font-bold text-white">{outcome}</div>
-          </div>
-          
-          <div className="p-4 bg-gray-900/50 rounded-lg border border-gray-700">
-            <div className="text-sm text-gray-400 mb-1">Payout Multiplier</div>
-            <div className="font-bold text-green-400">{payout}x</div>
-          </div>
-          
-          <div>
-            <label className="text-sm text-gray-400 mb-2 block">Stake Amount</label>
-            <Input 
-              type="number"
-              placeholder="0.0 CHZ"
-              className="bg-gray-900 border-gray-700 text-white font-mono"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-            />
-          </div>
-          
-          {amount && parseFloat(amount) > 0 && (
-            <div className="p-4 bg-green-900/20 border border-green-700/50 rounded-lg">
-              <div className="text-sm text-gray-400 mb-1">Potential Return</div>
-              <div className="font-bold text-green-400">
-                {(parseFloat(amount) * payout).toFixed(2)} CHZ
-              </div>
-            </div>
-          )}
-          
-          <div className="flex gap-3 pt-4">
-            <Button variant="outline" onClick={onClose} className="flex-1 border-gray-600 text-gray-300 hover:bg-gray-800">
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleConfirm}
-              disabled={!amount || parseFloat(amount) <= 0}
-              className="flex-1 bg-white text-black font-bold hover:bg-gray-200"
-            >
-              Confirm Stake
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-export function StakingInterface({ match }: { match: Match }) {
-  const { address } = useAccount();
-  const { writeContract, error } = useWriteContract();
-  const [stakeModal, setStakeModal] = useState<{
-    isOpen: boolean;
-    poolType: 'market' | 'alpha';
-    outcome: string;
-    outcomeId: number;
-    payout: number;
-  }>({
-    isOpen: false,
-    poolType: 'market',
-    outcome: '',
-    outcomeId: 0,
-    payout: 0
-  });
-
-  const handleStakeClick = (poolType: 'market' | 'alpha', outcome: string, outcomeId: number, payout: number) => {
-    if (!address) {
-      alert("Please connect your wallet first.");
-      return;
-    }
-    
-    setStakeModal({
-      isOpen: true,
-      poolType,
-      outcome,
-      outcomeId,
-      payout
-    });
-  };
-
-  const handleConfirmStake = (amount: string) => {
-    writeContract({
-      address: contractAddress,
-      abi: contractAbi,
-      functionName: 'stake',
-      args: [
-        match.matchId,
-        stakeModal.outcomeId,
-        stakeModal.poolType === 'alpha', // isAlphaPool boolean
-      ],
-      value: parseEther(amount),
-    });
-
-    if (error) {
-      console.error("Stake failed:", error.message);
-      alert(`Stake failed: ${error.message}`);
-    }
-  };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   const outcomes = [
     { name: match.teamA.name, outcomeId: 0 },
@@ -169,167 +84,225 @@ export function StakingInterface({ match }: { match: Match }) {
     { name: match.teamB.name, outcomeId: 2 },
   ];
 
-  return (
-    <div className="space-y-8">
-      {/* Market Pool Card */}
-      <Card className="bg-gradient-to-br from-[#1A1A1A] to-black border-gray-700">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-3">
-            <Heart className="text-red-400" size={24} />
-            <div>
-              <div className="text-xl font-bold text-white">Market Pool</div>
-              <div className="text-sm text-gray-400">Community-driven predictions</div>
-            </div>
-            <Badge variant="outline" className="ml-auto border-gray-600 text-gray-300">
-              <Users size={12} className="mr-1" />
-              {MOCK_POOL_DATA.market.total} CHZ
-            </Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {outcomes.map(({ name, outcomeId }) => {
-            const data = outcomeId === 0 ? MOCK_POOL_DATA.market.teamA : 
-                         outcomeId === 1 ? MOCK_POOL_DATA.market.draw : 
-                         MOCK_POOL_DATA.market.teamB;
-            
-            return (
-              <div key={name} className="flex justify-between items-center p-4 bg-gradient-to-r from-gray-900/50 to-gray-800/50 rounded-lg border border-gray-700/50 hover:border-gray-600 transition-colors group">
-                <div className="flex items-center gap-3">
-                  <div>
-                    <div className="font-bold text-white text-lg">{name}</div>
-                    <div className="text-sm text-gray-400">{data.staked} CHZ staked</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="text-right">
-                    <div className="font-mono font-bold text-green-400 text-lg">{data.payout}x</div>
-                    <div className="text-xs text-gray-400">Payout</div>
-                  </div>
-                  <Button 
-                    onClick={() => handleStakeClick('market', name, outcomeId, data.payout)}
-                    className="bg-white text-black font-bold hover:bg-gray-200 px-6"
-                  >
-                    Stake
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
-        </CardContent>
-      </Card>
+  const handleSelect = (details: ParlaySelectionDetails) => {
+    setSelectedBet(details);
+    setShowBettingOptions(`${details.poolType}-${details.selectionId}`);
+  }
 
-      {/* Alpha Pool Card */}
-      <Card className="bg-gradient-to-br from-[#1A1A1A] to-black border-gray-700">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-3">
-            <Bot className="text-gray-400" size={24} />
-            <div>
-              <div className="text-xl font-bold text-white">Alpha Pool</div>
-              <div className="text-sm text-gray-400">AI-powered predictions</div>
-            </div>
-            <Badge variant="outline" className="ml-auto border-gray-600 text-gray-300">
-              <Zap size={12} className="mr-1" />
-              {MOCK_POOL_DATA.alpha.total} CHZ
-            </Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {outcomes.map(({ name, outcomeId }) => {
-            const data = outcomeId === 0 ? MOCK_POOL_DATA.alpha.teamA : 
-                         outcomeId === 1 ? MOCK_POOL_DATA.alpha.draw : 
-                         MOCK_POOL_DATA.alpha.teamB;
-            
-            return (
-              <div key={name} className="flex justify-between items-center p-4 bg-gradient-to-r from-gray-900/50 to-gray-800/50 rounded-lg border border-gray-700/50 hover:border-gray-600 transition-colors group">
-                <div className="flex items-center gap-3">
-                  <div>
-                    <div className="font-bold text-white text-lg">{name}</div>
-                    <div className="text-sm text-gray-400">{data.staked} CHZ staked</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="text-right">
-                    <div className="font-mono font-bold text-green-400 text-lg">{data.payout}x</div>
-                    <div className="text-xs text-gray-400">Payout</div>
-                  </div>
-                  <Button 
-                    onClick={() => handleStakeClick('alpha', name, outcomeId, data.payout)}
-                    className="bg-white text-black font-bold hover:bg-gray-200 px-6"
-                  >
-                    Stake
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
-        </CardContent>
-      </Card>
+  const handleAddToParlay = () => {
+    if (selectedBet && onSelectBet) {
+      onSelectBet(selectedBet);
+      setShowBettingOptions(null);
+      setSelectedBet(null);
+    }
+  }
 
-      {/* Live Payout Multipliers Card */}
-      <Card className="bg-gradient-to-br from-[#1A1A1A] to-black border-gray-700">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-3">
-            <TrendingUp className="text-gray-400" size={24} />
-            <div>
-              <div className="text-xl font-bold text-white">Live Payout Multipliers</div>
-              <div className="text-sm text-gray-400">Real-time odds comparison</div>
-            </div>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Market Pool Multipliers */}
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 mb-3">
-                <Heart size={16} className="text-red-400" />
-                <span className="font-bold text-white">Market Pool</span>
-              </div>
-              {outcomes.map(({ name, outcomeId }) => {
-                const data = outcomeId === 0 ? MOCK_POOL_DATA.market.teamA : 
-                             outcomeId === 1 ? MOCK_POOL_DATA.market.draw : 
-                             MOCK_POOL_DATA.market.teamB;
-                
-                return (
-                  <div key={`market-${name}`} className="flex justify-between items-center p-3 bg-gray-900/30 rounded-lg">
-                    <span className="text-white font-medium">{name}</span>
-                    <span className="font-mono font-bold text-green-400">{data.payout}x</span>
-                  </div>
-                );
-              })}
-            </div>
+  const handlePlaceSingle = () => {
+    if (selectedBet && onPlaceSingleBet && singleBetAmount) {
+      onPlaceSingleBet(selectedBet, parseFloat(singleBetAmount));
+      setShowBettingOptions(null);
+      setSelectedBet(null);
+      setSingleBetAmount('');
+    }
+  }
 
-            {/* Alpha Pool Multipliers */}
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 mb-3">
-                <Bot size={16} className="text-gray-400" />
-                <span className="font-bold text-white">Alpha Pool</span>
-              </div>
-              {outcomes.map(({ name, outcomeId }) => {
-                const data = outcomeId === 0 ? MOCK_POOL_DATA.alpha.teamA : 
-                             outcomeId === 1 ? MOCK_POOL_DATA.alpha.draw : 
-                             MOCK_POOL_DATA.alpha.teamB;
-                
-                return (
-                  <div key={`alpha-${name}`} className="flex justify-between items-center p-3 bg-gray-900/30 rounded-lg">
-                    <span className="text-white font-medium">{name}</span>
-                    <span className="font-mono font-bold text-green-400">{data.payout}x</span>
-                  </div>
-                );
-              })}
+  const BettingDropdown = ({ betDetails, isActive }: { betDetails: ParlaySelectionDetails, isActive: boolean }) => {
+    if (!isActive) return null;
+    
+    return (
+      <div className="absolute top-full left-0 right-0 z-20 mt-2 p-4 bg-gray-800 border border-gray-600 rounded-lg shadow-xl animate-in slide-in-from-top-2 duration-200">
+        <h4 className="font-bold text-white mb-3 flex items-center gap-2">
+          <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+          {betDetails.selectionName}
+        </h4>
+        <div className="space-y-3">
+          <Button
+            onClick={handleAddToParlay}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center gap-2 transition-all duration-200 hover:scale-105"
+          >
+            <Plus size={16} />
+            Add to Parlay ({betDetails.odds.toFixed(2)}x)
+          </Button>
+          
+          <div className="border-t border-gray-600 pt-3">
+            <p className="text-xs text-gray-400 mb-2">Or place a single bet:</p>
+            <div className="flex gap-2">
+              <Input
+                type="number"
+                placeholder="Amount (CHZ)"
+                value={singleBetAmount}
+                onChange={(e) => setSingleBetAmount(e.target.value)}
+                className="flex-1 bg-gray-700 border-gray-600 text-white"
+                min="0"
+                step="0.01"
+              />
+              <Button
+                onClick={handlePlaceSingle}
+                disabled={!singleBetAmount || parseFloat(singleBetAmount) <= 0}
+                className="bg-green-600 hover:bg-green-700 text-white flex items-center gap-2 transition-all duration-200 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Wallet size={16} />
+                Bet Now
+              </Button>
             </div>
+            {singleBetAmount && parseFloat(singleBetAmount) > 0 && (
+              <div className="mt-2 p-2 bg-green-900/20 border border-green-700/50 rounded text-center">
+                <p className="text-sm text-green-400 font-medium">
+                  Potential win: <span className="font-bold">{(parseFloat(singleBetAmount) * betDetails.odds).toFixed(2)} CHZ</span>
+                </p>
+              </div>
+            )}
           </div>
+        </div>
+      </div>
+    );
+  };
+
+  const isOutcomeSelected = (poolType: 'market' | 'alpha' | 'btts' | 'goals', selectionId: number | string) => {
+    return parlaySelections?.some(
+        s => s.matchId === match._id && s.poolType === poolType && s.selectionId === selectionId
+    ) || false;
+  }
+
+  const isMatchInParlay = parlaySelections?.some(s => s.matchId === match._id) || false;
+
+  const renderMarketCard = (type: 'market' | 'alpha') => {
+    const poolData = type === 'market' ? dynamicMarketData.market : dynamicMarketData.alpha;
+    const title = type === 'market' ? 'Market Pool' : 'Alpha Pool';
+    const icon = type === 'market' ? <Heart className="text-red-400" /> : <Bot className="text-gray-400" />;
+    
+    return (
+        <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700/50 flex flex-col h-full">
+             <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                    {icon}
+                    <span className="font-bold text-white">{title}</span>
+                </div>
+                <Badge variant="outline" className="border-gray-600 text-gray-300 text-xs">
+                    {poolData.total.toFixed(0)} CHZ
+                </Badge>
+            </div>
+            <div className="space-y-2 flex-grow flex flex-col justify-end">
+                {outcomes.map(({ name, outcomeId }) => {
+                    const data = outcomeId === 0 ? poolData.teamA :
+                                    outcomeId === 1 ? poolData.draw :
+                                    poolData.teamB;
+                    const isSelected = isOutcomeSelected(type, outcomeId);
+
+                    const betDetails = {
+                        poolType: type,
+                        matchId: match._id,
+                        matchName: `${match.teamA.name} vs ${match.teamB.name}`,
+                        selectionName: name,
+                        selectionId: outcomeId,
+                        odds: data.payout
+                    };
+                    const isDropdownActive = showBettingOptions === `${type}-${outcomeId}`;
+
+                    return (
+                        <div key={name} className="relative">
+                            <Button
+                                variant={'ghost'}
+                                size="lg"
+                                onClick={() => handleSelect(betDetails)}
+                                className={`w-full justify-between text-base p-4 h-auto transition-all duration-200 rounded-md ${isSelected ? 'bg-blue-600/30' : isDropdownActive ? 'bg-gray-700' : 'bg-gray-800/50 hover:bg-gray-700/80'}`}
+                            >
+                                <span className="font-semibold text-gray-300">{name}</span>
+                                <span className="font-mono text-lg font-bold text-green-400">{data.payout.toFixed(2)}x</span>
+                            </Button>
+                            <BettingDropdown betDetails={betDetails} isActive={isDropdownActive} />
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    )
+  }
+
+  const renderSideMarketCard = (
+    marketType: 'btts' | 'goals',
+    title: string,
+    icon: React.ReactNode,
+    options: { label: string, selectionId: string, odds: number }[]
+  ) => {
+    return (
+        <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700/50 flex flex-col h-full">
+            <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                    {icon}
+                    <span className="font-bold text-white">{title}</span>
+                </div>
+            </div>
+            <div className="space-y-2 flex-grow flex flex-col justify-end">
+                {options.map(({ label, selectionId, odds }) => {
+                    const isSelected = isOutcomeSelected(marketType, selectionId);
+                    const betDetails = {
+                        poolType: marketType,
+                        matchId: match._id,
+                        matchName: `${match.teamA.name} vs ${match.teamB.name}`,
+                        selectionName: `${title}: ${label}`,
+                        selectionId: selectionId,
+                        odds: odds
+                    };
+                    const isDropdownActive = showBettingOptions === `${marketType}-${selectionId}`;
+
+                    return (
+                        <div key={selectionId} className="relative">
+                            <Button
+                                variant={'ghost'}
+                                size="lg"
+                                onClick={() => handleSelect(betDetails)}
+                                className={`w-full justify-between text-base p-4 h-auto transition-all duration-200 rounded-md ${isSelected ? 'bg-blue-600/30' : isDropdownActive ? 'bg-gray-700' : 'bg-gray-800/50 hover:bg-gray-700/80'}`}
+                            >
+                                <span className="font-semibold text-gray-300">{label}</span>
+                                <span className="font-mono text-lg font-bold text-green-400">{odds.toFixed(2)}x</span>
+                            </Button>
+                            <BettingDropdown betDetails={betDetails} isActive={isDropdownActive} />
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    )
+  }
+
+  const bttsOptions = [
+    { label: 'Yes', selectionId: 'yes', odds: dynamicMarketData.btts.yes.payout },
+    { label: 'No', selectionId: 'no', odds: dynamicMarketData.btts.no.payout },
+  ];
+
+  const goalsData = dynamicMarketData.goals;
+  const goalsOptions = [
+    { label: 'Over 1.5', selectionId: 'o1.5', odds: goalsData['o1.5'].payout },
+    { label: 'Under 1.5', selectionId: 'u1.5', odds: goalsData['u1.5'].payout },
+    { label: 'Over 2.5', selectionId: 'o2.5', odds: goalsData['o2.5'].payout },
+    { label: 'Under 2.5', selectionId: 'u2.5', odds: goalsData['u2.5'].payout },
+    { label: 'Over 3.5', selectionId: 'o3.5', odds: goalsData['o3.5'].payout },
+    { label: 'Under 3.5', selectionId: 'u3.5', odds: goalsData['u3.5'].payout },
+  ];
+
+
+  return (
+    <div ref={containerRef} className="space-y-4">
+      <Card className="bg-transparent border-none shadow-none">
+        <CardHeader className="p-0 mb-4">
+            <CardTitle className="text-xl font-bold text-white">Main Markets</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0 grid grid-cols-1 md:grid-cols-2 gap-4">
+            {renderMarketCard('market')}
+            {renderMarketCard('alpha')}
         </CardContent>
       </Card>
 
-      {/* Stake Modal */}
-      <StakeModal
-        isOpen={stakeModal.isOpen}
-        onClose={() => setStakeModal(prev => ({ ...prev, isOpen: false }))}
-        poolType={stakeModal.poolType}
-        outcome={stakeModal.outcome}
-        payout={stakeModal.payout}
-        onConfirm={handleConfirmStake}
-      />
+      <Card className="bg-transparent border-none shadow-none">
+        <CardHeader className="p-0 mb-4">
+            <CardTitle className="text-xl font-bold text-white">Side Markets</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0 grid grid-cols-1 md:grid-cols-2 gap-4">
+            {renderSideMarketCard('btts', 'Both Teams To Score', <Shield className="text-yellow-400" />, bttsOptions)}
+            {renderSideMarketCard('goals', 'Total Goals', <Goal className="text-green-400" />, goalsOptions)}
+        </CardContent>
+      </Card>
     </div>
   );
 }

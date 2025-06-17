@@ -5,41 +5,63 @@ import useSWR from 'swr';
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { StatsSummaryCard } from "@/components/features/StatsSummaryCard";
-import { StakeHistoryCard } from "@/components/features/StakeHistoryCard";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { type UserStake } from "@/types";
-import { TrendingUp, History, Compass } from 'lucide-react';
-import { mockUserStakes } from "@/lib/mockData";
+import { Compass } from 'lucide-react';
+import { useState } from "react";
+import { UpcomingMatchesSelector } from "@/components/features/UpcomingMatchesSelector";
+import { RecommendedMatches } from "@/components/features/RecommendedMatches";
+import { type ParlaySelectionDetails } from "@/components/features/StakingInterface";
+import { FloatingParlay } from "@/components/features/FloatingParlay";
 
 const fetcher = async (url: string): Promise<UserStake[]> => {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) {
-      throw new Error(`HTTP error! status: ${res.status}`);
-    }
-    return await res.json();
-  } catch (error) {
-    console.error('Failed to fetch stakes:', error);
-    // Return mock data as fallback when API fails
-    return mockUserStakes;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const error = new Error('An error occurred while fetching the data.');
+    // Attach extra info to the error object.
+    const info = await res.json();
+    (error as any).info = info;
+    (error as any).status = res.status;
+    throw error;
   }
+  return res.json();
 };
 
 const StakesPage: NextPage = () => {
   const { address, isConnected } = useAccount();
+  const [parlaySelections, setParlaySelections] = useState<ParlaySelectionDetails[]>([]);
 
   const { data: stakes, error, isLoading } = useSWR<UserStake[]>(
     isConnected ? `/api/stakes/${address}` : null,
-    fetcher,
-    {
-      fallbackData: isConnected ? mockUserStakes : undefined, // Use mock data when connected
-      revalidateOnFocus: false,
-      onError: (error) => {
-        console.error('SWR error:', error);
-      }
-    }
+    fetcher
   );
+
+  const handleSelectParlay = (selection: ParlaySelectionDetails) => {
+    setParlaySelections(prev => {
+      // Prevent adding if match already in parlay
+      if (prev.some(s => s.matchId === selection.matchId)) {
+        return prev;
+      }
+      return [...prev, selection];
+    });
+  };
+
+  const handleRemoveParlay = (matchId: string) => {
+    setParlaySelections(prev => prev.filter(s => s.matchId !== matchId));
+  };
+
+  const handleClearParlay = () => {
+    setParlaySelections([]);
+  };
+
+  const handlePlaceParlayBet = (amount: number) => {
+    // TODO: Implement actual parlay betting logic
+    console.log('Placing parlay bet for:', amount, 'CHZ with selections:', parlaySelections);
+    alert(`Parlay bet of ${amount} CHZ placed! (See console for details)`);
+    handleClearParlay();
+  };
+
 
   if (!isConnected) {
     return (
@@ -73,9 +95,9 @@ const StakesPage: NextPage = () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-          {/* Left Column: Stats */}
+          {/* Left Column: Stats and Parlay Builder */}
           <div className="lg:col-span-1 space-y-8 sticky top-28">
-            <StatsSummaryCard stakes={Array.isArray(stakes) ? stakes : []} isLoading={isLoading} />
+            <StatsSummaryCard stakes={stakes} isLoading={isLoading} />
             <Card className="bg-gradient-to-br from-gray-900/50 to-black border-gray-700">
               <CardContent className="p-6">
                 <h3 className="font-bold mb-4 text-white flex items-center gap-2"><Compass size={20} /> Ready for More?</h3>
@@ -89,51 +111,31 @@ const StakesPage: NextPage = () => {
             </Card>
           </div>
 
-          {/* Right Column: History */}
-          <div className="lg:col-span-2">
-            <div className="flex items-center gap-4 mb-6">
-                <History className="text-gray-400" />
-                <h2 className="text-3xl font-bold">Stake History</h2>
-            </div>
-            
-            {isLoading && (
-              <div className="space-y-4">
-                {/* Skeleton Loader */}
-                {[...Array(3)].map((_, i) => (
-                    <Card key={i} className="bg-[#1A1A1A] border-gray-800 animate-pulse">
-                        <CardContent className="p-4 h-24"></CardContent>
-                    </Card>
-                ))}
-              </div>
-            )}
-            {error && (
-                <Card className="bg-red-900/20 border border-red-500/30">
-                    <CardContent className="p-6 text-center">
-                        <h3 className="text-xl font-bold text-red-400">Failed to load stake history</h3>
-                        <p className="text-red-400/80 mt-2">There was an error fetching your data. Please try again later.</p>
-                    </CardContent>
-                </Card>
-            )}
-
-            {stakes && Array.isArray(stakes) && (
-              stakes.length > 0 ? (
-                <div className="space-y-4">
-                  {stakes.map((stake) => (
-                    <StakeHistoryCard key={stake._id} stake={stake} />
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-20 border-2 border-dashed border-gray-800 rounded-xl bg-[#111111]/50">
-                  <h3 className="text-xl font-semibold text-gray-300">No Stakes Yet</h3>
-                  <p className="text-gray-500 mt-2">You haven&apos;t placed any stakes. Time to make your first move!</p>
-                   <Button asChild className="mt-6">
-                      <Link href="/">Explore Matches</Link>
-                    </Button>
-                </div>
-              )
-            )}
+          {/* Right Column: Recommended Matches for Parlay */}
+          <div className="lg:col-span-2 space-y-8">
+            <UpcomingMatchesSelector 
+              onSelect={(selection) => handleSelectParlay({
+                poolType: 'market',
+                matchId: selection.matchId,
+                matchName: selection.matchName,
+                selectionName: selection.selectionName,
+                selectionId: selection.selectionId,
+                odds: selection.odds
+              })}
+              selectedMatchIds={parlaySelections.map(s => s.matchId)}
+            />
+            <RecommendedMatches 
+              onSelectBet={handleSelectParlay}
+              parlaySelections={parlaySelections}
+            />
           </div>
         </div>
+        <FloatingParlay
+            selections={parlaySelections}
+            onRemove={handleRemoveParlay}
+            onClear={handleClearParlay}
+            onPlaceBet={handlePlaceParlayBet}
+        />
       </main>
       <Footer />
     </div>

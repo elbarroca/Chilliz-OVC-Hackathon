@@ -4,12 +4,27 @@ import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { type Match } from '@/types';
-import { Bot, Users, Heart, TrendingUp, Clock } from 'lucide-react';
+import { Bot, Users, Heart, TrendingUp, Clock, Shield, Target } from 'lucide-react';
 import { useState } from 'react';
+
+// Helper function to create SEO-friendly URLs
+function createMatchUrl(teamA: string, teamB: string, matchDate: string): string {
+  const createSlug = (name: string) => 
+    name.toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9-]/g, '')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+  
+  const teamSlug = `${createSlug(teamA)}-vs-${createSlug(teamB)}`;
+  const date = new Date(matchDate).toISOString().split('T')[0];
+  return `/match/${teamSlug}/${date}`;
+}
 
 export function MatchCard({ match }: { match: Match }) {
   const [teamALogoError, setTeamALogoError] = useState(false);
   const [teamBLogoError, setTeamBLogoError] = useState(false);
+  const [leagueLogoError, setLeagueLogoError] = useState(false);
 
   const matchDate = new Date(match.matchTime);
   const isUpcoming = match.status === 'UPCOMING';
@@ -38,21 +53,32 @@ export function MatchCard({ match }: { match: Match }) {
 
   const defaultLogo = "https://s2.coinmarketcap.com/static/img/coins/64x64/24460.png";
 
+  const matchUrl = createMatchUrl(match.teamA.name, match.teamB.name, match.matchTime);
+
+  // Extract expected goals data
+  const expectedGoals = match.analysisData?.expected_goals;
+
   return (
-    <Link href={`/${match._id}`} className="block group relative">
+    <Link href={matchUrl} className="block group relative">
       <div className="absolute -inset-0.5 bg-gradient-to-r from-gray-600 to-gray-700 rounded-lg blur opacity-20 group-hover:opacity-40 transition duration-1000 group-hover:duration-200"></div>
-      <Card className="relative bg-[#1A1A1A] border-gray-800 group-hover:border-gray-700 transition-all duration-300 overflow-hidden h-full flex flex-col">
-        <CardHeader className="p-4 border-b border-gray-800">
+      <Card className="relative bg-gradient-to-b from-[#1F1F1F] to-[#1A1A1A] border-gray-800 group-hover:border-gray-700 transition-all duration-300 overflow-hidden h-full flex flex-col shadow-lg">
+        <CardHeader className="p-4 border-b border-gray-800/80">
           <div className="flex justify-between items-center">
-            <time dateTime={match.matchTime} className="text-xs text-gray-400 font-mono uppercase">
-              {matchDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-              {' - '}
-              {matchDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}
-            </time>
-            {isUpcoming ? (
-              <Badge variant="secondary" className="bg-blue-900/80 text-blue-300 border-blue-700">Upcoming</Badge>
-            ) : (
-              <Badge variant="outline" className="text-gray-400">{match.status}</Badge>
+             <div className="flex items-center gap-2">
+                {match.league?.logoUrl && (
+                  <Image 
+                    src={leagueLogoError ? defaultLogo : match.league.logoUrl}
+                    alt={match.league.name ?? 'League'}
+                    width={20}
+                    height={20}
+                    className="w-5 h-5"
+                    onError={() => setLeagueLogoError(true)}
+                  />
+                )}
+                <span className="text-xs text-gray-400 font-semibold">{match.league?.name || 'Special Event'}</span>
+             </div>
+            {match.status !== 'UPCOMING' && (
+              <Badge variant="outline" className="text-gray-400 border-gray-700">{match.status}</Badge>
             )}
           </div>
         </CardHeader>
@@ -95,6 +121,30 @@ export function MatchCard({ match }: { match: Match }) {
               <span className="font-bold text-base text-white text-wrap">{match.teamB.name}</span>
             </div>
           </div>
+
+          {/* Expected Goals Section */}
+          {expectedGoals && (
+            <div className="mb-4 p-3 bg-gradient-to-r from-blue-900/30 to-gray-800/30 rounded-lg border border-blue-700/50">
+              <div className="flex items-center gap-2 mb-2">
+                <Target size={12} className="text-blue-400" />
+                <span className="text-xs font-medium text-gray-300">Expected Goals (xG)</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <div className="text-center">
+                  <div className="text-gray-400">{match.teamA.name.split(' ')[0]}</div>
+                  <div className="font-bold text-white">{expectedGoals.home.toFixed(2)}</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-gray-400">Total</div>
+                  <div className="font-bold text-blue-300">{(expectedGoals.home + expectedGoals.away).toFixed(2)}</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-gray-400">{match.teamB.name.split(' ')[0]}</div>
+                  <div className="font-bold text-white">{expectedGoals.away.toFixed(2)}</div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Odds Display */}
           <div className="space-y-3 mb-4">

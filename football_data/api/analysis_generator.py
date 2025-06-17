@@ -56,8 +56,8 @@ class FixtureAnalysisGenerator:
             home_matches = db_manager.get_historical_matches(home_team_id, match_date, limit=10)
             away_matches = db_manager.get_historical_matches(away_team_id, match_date, limit=10)
             
-            # Close connection after use
-            db_manager.close_connection()
+            # The connection is now managed by the calling endpoint, so we don't close it here.
+            # db_manager.close_connection()
             
             home_goals_for, home_goals_against = self._calculate_team_averages(home_matches, home_team_id)
             away_goals_for, away_goals_against = self._calculate_team_averages(away_matches, away_team_id)
@@ -334,10 +334,10 @@ class FixtureAnalysisGenerator:
     async def generate_fixture_analysis(self, fixture_id: str) -> Optional[Dict]:
         """Main method to generate and return analysis for a given fixture ID."""
         try:
-            # Create fresh DB connection for this operation
+            # Use existing DB connection (singleton pattern - don't close it)
             db_manager = MongoDBManager()
             match_data = db_manager.get_match_data(fixture_id)
-            db_manager.close_connection()
+            # Note: Don't close the connection here as it's a singleton used by other parts
             
             if not match_data:
                 return None

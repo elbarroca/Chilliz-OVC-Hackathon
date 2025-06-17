@@ -4,7 +4,21 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { type Match } from '@/types';
-import { Calendar, Users, Zap, TrendingUp, Clock } from 'lucide-react';
+import { Calendar, Users, Zap, TrendingUp, Clock, BarChart3, Target } from 'lucide-react';
+
+// Helper function to create SEO-friendly URLs
+function createMatchUrl(teamA: string, teamB: string, matchDate: string): string {
+  const createSlug = (name: string) => 
+    name.toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9-]/g, '')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+  
+  const teamSlug = `${createSlug(teamA)}-vs-${createSlug(teamB)}`;
+  const date = new Date(matchDate).toISOString().split('T')[0];
+  return `/match/${teamSlug}/${date}`;
+}
 
 // Mock data for visualization. In a real app, this would come from on-chain reads.
 const mockPoolState = {
@@ -25,6 +39,7 @@ export function FeaturedMatch({ match }: { match: Match }) {
   const marketTeamAPercentage = (mockPoolState.market.onTeamA / mockPoolState.market.total) * 100;
   const alphaTeamAPercentage = (mockPoolState.alpha.onTeamA / mockPoolState.alpha.total) * 100;
   const matchDate = new Date(match.matchTime);
+  const matchUrl = createMatchUrl(match.teamA.name, match.teamB.name, match.matchTime);
 
   const getAlphaPick = () => {
     const { winA_prob, winB_prob, draw_prob } = match.alphaPredictions;
@@ -33,6 +48,11 @@ export function FeaturedMatch({ match }: { match: Match }) {
     return { team: 'Draw', confidence: (draw_prob * 100).toFixed(1) };
   };
   const alphaPick = getAlphaPick();
+
+  // Extract enhanced data from analysis if available
+  const analysisData = match.analysisData;
+  const expectedGoals = analysisData?.expected_goals;
+  const marketProbabilities = analysisData?.match_outcome_probabilities?.monte_carlo;
 
   return (
     <div className="group relative">
@@ -62,7 +82,7 @@ export function FeaturedMatch({ match }: { match: Match }) {
               </div>
               <div>
                 <h3 className="text-2xl font-bold text-white">{match.teamA.name}</h3>
-                {match.league && <p className="text-sm text-gray-400">{match.league}</p>}
+                {match.league && <p className="text-sm text-gray-400">{match.league.name || 'Major League'}</p>}
               </div>
             </div>
             
@@ -82,7 +102,7 @@ export function FeaturedMatch({ match }: { match: Match }) {
             <div className="flex items-center gap-4 justify-end">
               <div className="text-right">
                 <h3 className="text-2xl font-bold text-white">{match.teamB.name}</h3>
-                {match.league && <p className="text-sm text-gray-400">{match.league}</p>}
+                {match.league && <p className="text-sm text-gray-400">{match.league.name || 'Major League'}</p>}
               </div>
               <div className="relative">
                 <Image src={match.teamB.logoUrl} alt={match.teamB.name} width={80} height={80} className="w-20 h-20 group-hover:scale-110 transition-transform duration-300"/>
@@ -91,8 +111,34 @@ export function FeaturedMatch({ match }: { match: Match }) {
             </div>
           </div>
 
-          {/* Pool Information */}
-          <div className="grid md:grid-cols-2 gap-6 mb-8">
+          {/* Enhanced Analytics Section */}
+          <div className="grid md:grid-cols-3 gap-6 mb-8">
+            {/* Expected Goals */}
+            {expectedGoals && (
+              <div className="p-4 rounded-xl bg-gradient-to-br from-blue-900/30 to-black border border-blue-700/50">
+                <div className="flex items-center gap-2 mb-3">
+                  <Target size={16} className="text-blue-400" />
+                  <h4 className="font-semibold text-gray-300">Expected Goals (xG)</h4>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400">{match.teamA.name}</span>
+                    <span className="font-mono text-white">{expectedGoals.home.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400">{match.teamB.name}</span>
+                    <span className="font-mono text-white">{expectedGoals.away.toFixed(2)}</span>
+                  </div>
+                  <div className="pt-1 border-t border-gray-700/50">
+                    <div className="flex justify-between text-xs text-blue-300">
+                      <span>Total xG</span>
+                      <span className="font-mono">{(expectedGoals.home + expectedGoals.away).toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Market Pool */}
             <div className="p-4 rounded-xl bg-gradient-to-br from-gray-900/50 to-black border border-gray-700">
               <div className="flex items-center gap-2 mb-3">
@@ -114,24 +160,36 @@ export function FeaturedMatch({ match }: { match: Match }) {
               </div>
             </div>
 
-            {/* Alpha Pool */}
-            <div className="p-4 rounded-xl bg-gradient-to-br from-gray-900/50 to-black border border-gray-700">
+            {/* Alpha Pool with Enhanced Data */}
+            <div className="p-4 rounded-xl bg-gradient-to-br from-purple-900/30 to-black border border-purple-700/50">
               <div className="flex items-center gap-2 mb-3">
-                <Zap size={16} className="text-gray-400" />
-                <h4 className="font-semibold text-gray-300">Alpha Pool</h4>
-                <Badge variant="outline" className="text-xs bg-gray-800 text-gray-300 border-gray-600">
+                <BarChart3 size={16} className="text-purple-400" />
+                <h4 className="font-semibold text-gray-300">Alpha Engine</h4>
+                <Badge variant="outline" className="text-xs bg-purple-800/50 text-purple-300 border-purple-600">
                   AI Powered
                 </Badge>
               </div>
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">Total Staked</span>
-                  <span className="font-mono text-white">{mockPoolState.alpha.total} CHZ</span>
+                  <span className="text-gray-400">Prediction</span>
+                  <span className="font-medium text-white">{alphaPick.team}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">AI Prediction</span>
-                  <span className="font-medium text-gray-300">{alphaPick.team} ({alphaPick.confidence}%)</span>
+                  <span className="text-gray-400">Confidence</span>
+                  <span className="font-mono text-purple-300">{alphaPick.confidence}%</span>
                 </div>
+                {marketProbabilities && (
+                  <div className="pt-1 border-t border-gray-700/50">
+                    <div className="flex justify-between text-xs text-gray-500">
+                      <span>BTTS</span>
+                      <span>{(marketProbabilities.both_teams_score * 100).toFixed(0)}%</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-gray-500">
+                      <span>O2.5</span>
+                      <span>{(marketProbabilities.over_2_5_goals * 100).toFixed(0)}%</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -139,7 +197,7 @@ export function FeaturedMatch({ match }: { match: Match }) {
           {/* Action Button */}
           <div className="text-center">
             <Button asChild size="lg" className="bg-white text-black font-bold hover:bg-gray-200 px-12 py-6 text-lg transition-all duration-300 group-hover:scale-105 group-hover:shadow-2xl group-hover:shadow-gray-500/25">
-              <Link href={`/${match._id}`} className="flex items-center gap-2">
+              <Link href={matchUrl} className="flex items-center gap-2">
                 <TrendingUp size={20} />
                 View Pools & Place Stake
               </Link>
