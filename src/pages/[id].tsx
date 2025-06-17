@@ -1,46 +1,50 @@
 import { type GetServerSideProps, type NextPage } from "next";
 import Image from "next/image";
+import { useState } from "react";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { StakingInterface } from "@/components/features/StakingInterface";
 import { AlphaInsight } from "@/components/features/AlphaInsight";
 import { LiveOddsTicker } from "@/components/features/LiveOddsTicker";
-import { type Match } from "@/types";
-import { Calendar, Users, Clock, TrendingUp, BarChart3, Target, Zap } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PredictionChart } from "@/components/features/PredictionChart";
+import { type MatchWithAnalysis } from "@/types";
+import { Calendar, Users, Clock, Zap } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { mockMatches } from "@/lib/mockData";
 
 export const getServerSideProps: GetServerSideProps = async (context) => {
   const { id } = context.params!;
+  
+  if (typeof id !== 'string') {
+    return { notFound: true };
+  }
+
   try {
     const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
     const host = context.req.headers.host;
-    const apiUrl = `${protocol}://${host}`;
+    const apiUrl = `${protocol}://${host}/api/matches/${id}`;
     
-    const res = await fetch(`${apiUrl}/api/matches/${id}`);
+    const res = await fetch(apiUrl);
+    
     if (!res.ok) {
-      // Use mock data as fallback
-      const mockMatch = mockMatches.find(m => m._id === id);
-      if (mockMatch) {
-        return { props: { match: mockMatch } };
-      }
+      console.warn(`API failed for match ${id}, status: ${res.status}.`);
       return { notFound: true };
     }
-    const match: Match = await res.json();
+    
+    const match: MatchWithAnalysis = await res.json();
     return { props: { match } };
+
   } catch (error) {
-    console.error(error);
-    // Use mock data as fallback
-    const mockMatch = mockMatches.find(m => m._id === id);
-    if (mockMatch) {
-      return { props: { match: mockMatch } };
-    }
+    console.error(`Error fetching match ${id}:`, error);
     return { notFound: true };
   }
 };
 
-const MatchPage: NextPage<{ match: Match }> = ({ match }) => {
+const MatchPage: NextPage<{ match: MatchWithAnalysis }> = ({ match }) => {
+  const [teamALogoError, setTeamALogoError] = useState(false);
+  const [teamBLogoError, setTeamBLogoError] = useState(false);
+  const defaultLogo = "https://s2.coinmarketcap.com/static/img/coins/64x64/24460.png";
+
   const matchDate = new Date(match.matchTime);
   
   const getAlphaPick = () => {
@@ -70,7 +74,14 @@ const MatchPage: NextPage<{ match: Match }> = ({ match }) => {
                 <div className="flex justify-center items-center gap-6 md:gap-12 mb-8">
                     <div className="flex flex-col items-center gap-4 w-1/3 md:w-auto">
                       <div className="relative group">
-                        <Image src={match.teamA.logoUrl} alt={match.teamA.name} className="w-24 h-24 md:w-32 md:h-32 transition-transform group-hover:scale-110"/>
+                        <Image 
+                          src={teamALogoError ? defaultLogo : match.teamA.logoUrl}
+                          alt={match.teamA.name} 
+                          className="w-24 h-24 md:w-32 md:h-32 transition-transform group-hover:scale-110"
+                          width={128}
+                          height={128}
+                          onError={() => setTeamALogoError(true)}
+                        />
                         <div className="absolute -inset-2 bg-gradient-to-r from-gray-500 to-gray-600 rounded-full opacity-0 group-hover:opacity-20 transition-opacity duration-300 blur-lg"></div>
                       </div>
                       <h2 className="text-xl md:text-3xl font-bold">{match.teamA.name}</h2>
@@ -88,7 +99,14 @@ const MatchPage: NextPage<{ match: Match }> = ({ match }) => {
                     
                     <div className="flex flex-col items-center gap-4 w-1/3 md:w-auto">
                       <div className="relative group">
-                        <Image src={match.teamB.logoUrl} alt={match.teamB.name} className="w-24 h-24 md:w-32 md:h-32 transition-transform group-hover:scale-110"/>
+                        <Image 
+                          src={teamBLogoError ? defaultLogo : match.teamB.logoUrl} 
+                          alt={match.teamB.name} 
+                          className="w-24 h-24 md:w-32 md:h-32 transition-transform group-hover:scale-110"
+                          width={128}
+                          height={128}
+                          onError={() => setTeamBLogoError(true)}
+                        />
                         <div className="absolute -inset-2 bg-gradient-to-r from-gray-600 to-gray-700 rounded-full opacity-0 group-hover:opacity-20 transition-opacity duration-300 blur-lg"></div>
                       </div>
                       <h2 className="text-xl md:text-3xl font-bold">{match.teamB.name}</h2>
@@ -114,39 +132,22 @@ const MatchPage: NextPage<{ match: Match }> = ({ match }) => {
              </div>
         </section>
 
-        {/* Quick Stats */}
-        <section className="mb-12">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Card className="bg-gradient-to-br from-gray-900/50 to-black border-gray-700">
-              <CardContent className="p-4 text-center">
-                <TrendingUp className="w-6 h-6 text-gray-400 mx-auto mb-2" />
-                <div className="text-lg font-bold text-white">2,847</div>
-                <div className="text-xs text-gray-400">Total Stakes</div>
-              </CardContent>
-            </Card>
-            <Card className="bg-gradient-to-br from-gray-900/50 to-black border-gray-700">
-              <CardContent className="p-4 text-center">
-                <BarChart3 className="w-6 h-6 text-gray-400 mx-auto mb-2" />
-                <div className="text-lg font-bold text-white">156</div>
-                <div className="text-xs text-gray-400">Active Bettors</div>
-              </CardContent>
-            </Card>
-            <Card className="bg-gradient-to-br from-gray-900/50 to-black border-gray-700">
-              <CardContent className="p-4 text-center">
-                <Target className="w-6 h-6 text-gray-400 mx-auto mb-2" />
-                <div className="text-lg font-bold text-white">73.5%</div>
-                <div className="text-xs text-gray-400">Alpha Win Rate</div>
-              </CardContent>
-            </Card>
-            <Card className="bg-gradient-to-br from-gray-900/50 to-black border-gray-700">
-              <CardContent className="p-4 text-center">
-                <Zap className="w-6 h-6 text-gray-400 mx-auto mb-2" />
-                <div className="text-lg font-bold text-white">12.4K</div>
-                <div className="text-xs text-gray-400">CHZ Volume</div>
-              </CardContent>
-            </Card>
-          </div>
-        </section>
+        {/* Alpha Engine Prediction Charts */}
+        {match.alphaAnalysis ? (
+          <section className="mb-12">
+            <PredictionChart 
+              alphaAnalysis={match.alphaAnalysis}
+              teamAName={match.teamA.name}
+              teamBName={match.teamB.name}
+            />
+          </section>
+        ) : (
+          <Card className="bg-gradient-to-br from-gray-900/50 to-black border-gray-700 mb-12">
+            <CardContent className="p-6 text-center text-gray-400">
+              Alpha Engine analysis is not yet available for this match.
+            </CardContent>
+          </Card>
+        )}
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">

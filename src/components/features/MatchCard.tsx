@@ -5,8 +5,12 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { type Match } from '@/types';
 import { Bot, Users, Heart, TrendingUp, Clock } from 'lucide-react';
+import { useState } from 'react';
 
 export function MatchCard({ match }: { match: Match }) {
+  const [teamALogoError, setTeamALogoError] = useState(false);
+  const [teamBLogoError, setTeamBLogoError] = useState(false);
+
   const matchDate = new Date(match.matchTime);
   const isUpcoming = match.status === 'UPCOMING';
 
@@ -32,6 +36,8 @@ export function MatchCard({ match }: { match: Match }) {
     }
   };
 
+  const defaultLogo = "https://s2.coinmarketcap.com/static/img/coins/64x64/24460.png";
+
   return (
     <Link href={`/${match._id}`} className="block group relative">
       <div className="absolute -inset-0.5 bg-gradient-to-r from-gray-600 to-gray-700 rounded-lg blur opacity-20 group-hover:opacity-40 transition duration-1000 group-hover:duration-200"></div>
@@ -55,7 +61,14 @@ export function MatchCard({ match }: { match: Match }) {
           <div className="flex items-center justify-between mb-6">
             {/* Team A */}
             <div className="flex flex-col items-center gap-2 text-center w-2/5">
-              <Image src={match.teamA.logoUrl} alt={match.teamA.name} width={48} height={48} className="w-12 h-12 mb-2 group-hover:scale-110 transition-transform"/>
+              <Image 
+                src={teamALogoError ? defaultLogo : match.teamA.logoUrl} 
+                alt={match.teamA.name} 
+                width={48} 
+                height={48} 
+                className="w-12 h-12 mb-2 group-hover:scale-110 transition-transform"
+                onError={() => setTeamALogoError(true)}
+              />
               <span className="font-bold text-base text-white text-wrap">{match.teamA.name}</span>
             </div>
             
@@ -71,7 +84,14 @@ export function MatchCard({ match }: { match: Match }) {
 
             {/* Team B */}
             <div className="flex flex-col items-center gap-2 text-center w-2/5">
-              <Image src={match.teamB.logoUrl} alt={match.teamB.name} width={48} height={48} className="w-12 h-12 mb-2 group-hover:scale-110 transition-transform"/>
+              <Image 
+                src={teamBLogoError ? defaultLogo : match.teamB.logoUrl} 
+                alt={match.teamB.name} 
+                width={48} 
+                height={48} 
+                className="w-12 h-12 mb-2 group-hover:scale-110 transition-transform"
+                onError={() => setTeamBLogoError(true)}
+              />
               <span className="font-bold text-base text-white text-wrap">{match.teamB.name}</span>
             </div>
           </div>

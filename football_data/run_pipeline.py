@@ -33,14 +33,14 @@ print("=== PIPELINE STARTING ===")
 print(f"Python version: {sys.version}")
 print(f"Current working directory: {os.getcwd()}")
 
-# Set MONGODB_URI if it's not set but MONGO_URI is
-if not os.getenv('MONGODB_URI') and os.getenv('MONGO_URI'):
-    os.environ['MONGODB_URI'] = os.getenv('MONGO_URI')
-    print("✓ Set MONGODB_URI from MONGO_URI")
+# Set MONGO_URI if it's not set but MONGO_URI is
+if not os.getenv('MONGO_URI') and os.getenv('MONGO_URI'):
+    os.environ['MONGO_URI'] = os.getenv('MONGO_URI')
+    print("✓ Set MONGO_URI from MONGO_URI")
 
 # Check environment variables
 print(f"API_FOOTBALL_KEY: {'SET' if os.getenv('API_FOOTBALL_KEY') else 'NOT SET'}")
-print(f"MONGODB_URI: {'SET' if os.getenv('MONGODB_URI') else 'NOT SET'}")
+print(f"MONGO_URI: {'SET' if os.getenv('MONGO_URI') else 'NOT SET'}")
 print(f"MONGO_URI: {'SET' if os.getenv('MONGO_URI') else 'NOT SET'}")
 print(f"DB_NAME: {os.getenv('DB_NAME', 'NOT SET')}")
 

@@ -1,4 +1,4 @@
-import { type GetServerSideProps, type NextPage } from "next";
+import { useState, useEffect, type FC } from "react";
 import Link from "next/link";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
@@ -6,29 +6,10 @@ import { MatchCard } from "@/components/features/MatchCard";
 import { Button } from "@/components/ui/button";
 import { FeaturedMatch } from "@/components/features/FeaturedMatch";
 import { type Match } from "@/types";
-import { ArrowRight, BrainCircuit, Users, Lock, TrendingUp, Clock } from "lucide-react";
-import { mockMatches, mockUserStakes } from "@/lib/mockData";
+import { ArrowRight, BrainCircuit, Users, Lock, TrendingUp, Clock, AlertTriangle, Calendar as CalendarIcon } from "lucide-react";
 import { useAccount } from "wagmi";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import Image from "next/image";
-
-// This server-side function fetches your match data before the page loads.
-export const getServerSideProps: GetServerSideProps = async (context) => {
-  try {
-    const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
-    const host = context.req.headers.host;
-    const apiUrl = `${protocol}://${host}`;
-
-    const res = await fetch(`${apiUrl}/api/matches`);
-    if (!res.ok) throw new Error(`Failed to fetch matches. Status: ${res.status}`);
-    
-    const matches: Match[] = await res.json();
-    return { props: { matches: matches.length > 0 ? matches : mockMatches } }; // Use mock data as fallback
-  } catch (error) {
-    console.error(error);
-    return { props: { matches: mockMatches } }; // Use mock data on error
-  }
-};
+import { Input } from "@/components/ui/input";
 
 const MyMatchesWidget = () => {
   const { isConnected } = useAccount();
@@ -52,8 +33,6 @@ const MyMatchesWidget = () => {
     );
   }
 
-  const activeStakes = mockUserStakes.filter(stake => stake.status === 'PENDING').slice(0, 3);
-
   return (
     <Card className="bg-gradient-to-br from-gray-900/50 to-black border-gray-700">
       <CardHeader>
@@ -63,56 +42,75 @@ const MyMatchesWidget = () => {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {activeStakes.length > 0 ? (
-          <div className="space-y-3">
-            {activeStakes.map((stake) => (
-              <Link key={stake._id} href={`/${stake.match._id}`} className="block group">
-                <div className="p-3 rounded-lg bg-gray-900/50 border border-gray-700/50 group-hover:border-gray-600 transition-colors">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-1">
-                        <Image src={stake.match.teamA.logoUrl} alt={stake.match.teamA.name} width={24} height={24} className="w-6 h-6" />
-                        <span className="text-xs text-gray-400">vs</span>
-                        <Image src={stake.match.teamB.logoUrl} alt={stake.match.teamB.name} width={24} height={24} className="w-6 h-6" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-white">{stake.prediction}</p>
-                        <p className="text-xs text-gray-400">{stake.poolType} Pool</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-bold text-white">{stake.amountStaked} CHZ</p>
-                      <div className="flex items-center gap-1 text-xs text-yellow-400">
-                        <Clock size={10} />
-                        Pending
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </Link>
-            ))}
-            <Link href="/stakes">
-              <Button variant="outline" className="w-full mt-4 border-gray-600 text-gray-300 hover:bg-gray-800 hover:text-white">
-                View All Stakes
-              </Button>
-            </Link>
-          </div>
-        ) : (
           <div className="text-center py-6">
-            <p className="text-gray-400 mb-4">No active stakes</p>
+            <p className="text-gray-400 mb-4">No active stakes found.</p>
             <Link href="#matches">
               <Button variant="outline" className="border-gray-600 text-gray-300 hover:bg-gray-800 hover:text-white">
                 Explore Matches
               </Button>
             </Link>
           </div>
-        )}
       </CardContent>
     </Card>
   );
 };
 
-const LandingPage: NextPage<{ matches: Match[] }> = ({ matches }) => {
+// Helper to format date to YYYY-MM-DD
+const formatDate = (date: Date): string => {
+  return date.toISOString().split('T')[0];
+};
+
+const LandingPage: FC = () => {
+  const [upcomingMatches, setUpcomingMatches] = useState<Match[]>([]);
+  const [pastMatches, setPastMatches] = useState<Match[]>([]);
+  const [loadingUpcoming, setLoadingUpcoming] = useState(true);
+  const [loadingPast, setLoadingPast] = useState(true);
+  
+  // Default to yesterday
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    return formatDate(yesterday);
+  });
+
+  // Fetch upcoming matches on mount
+  useEffect(() => {
+    const fetchUpcoming = async () => {
+      setLoadingUpcoming(true);
+      try {
+        const res = await fetch('/api/matches');
+        if (res.ok) {
+          const data = await res.json();
+          setUpcomingMatches(data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch upcoming matches:", error);
+      }
+      setLoadingUpcoming(false);
+    };
+    fetchUpcoming();
+  }, []);
+
+  // Fetch past matches when selectedDate changes
+  useEffect(() => {
+    const fetchPastMatches = async () => {
+      if (!selectedDate) return;
+      setLoadingPast(true);
+      try {
+        const res = await fetch(`/api/matches?type=past&date=${selectedDate}`);
+        if (res.ok) {
+          const data = await res.json();
+          setPastMatches(data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch past matches:", error);
+      }
+      setLoadingPast(false);
+    };
+    fetchPastMatches();
+  }, [selectedDate]);
+
+
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-gray-100 flex flex-col">
       <Header />
@@ -222,87 +220,85 @@ const LandingPage: NextPage<{ matches: Match[] }> = ({ matches }) => {
             </div>
         </section>
 
-        {/* Featured Match Section */}
-        {matches.length > 0 && (
-          <section id="matches" className="py-20 md:py-24 bg-black">
-            <div className="container mx-auto px-4">
-              <div className="text-center mb-12">
-                <h2 className="text-3xl md:text-4xl font-bold">Featured Match</h2>
-              </div>
-              <FeaturedMatch match={matches[0]} />
+        {/* Upcoming Match Display Section */}
+        <section id="matches" className="py-20 md:py-24 bg-black">
+          <div className="container mx-auto px-4">
+            <div className="text-center mb-12">
+              <h2 className="text-3xl md:text-4xl font-bold">Upcoming Matches</h2>
+              <p className="text-gray-400 max-w-2xl mx-auto mt-2">
+                Choose your side: Follow the crowd with Market pools or trust our AI-powered Alpha Engine predictions.
+              </p>
             </div>
-          </section>
-        )}
-
-        {/* Other Matches */}
-        {matches.length > 1 && (
-          <section className="py-16 bg-[#101010]">
-            <div className="container mx-auto px-4">
-              <div className="text-center mb-12">
-                <h2 className="text-3xl md:text-4xl font-bold">Upcoming Matches</h2>
-                <p className="text-gray-400 max-w-2xl mx-auto mt-2">
-                  Choose your side: Follow the crowd with Market pools or trust our AI-powered Alpha Engine predictions.
+            {loadingUpcoming ? (
+              <div className="text-center text-gray-400">Loading upcoming matches...</div>
+            ) : upcomingMatches.length > 0 ? (
+              <>
+                <div className="mb-16">
+                  <FeaturedMatch match={upcomingMatches[0]} />
+                </div>
+                
+                {upcomingMatches.length > 1 && (
+                  <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    {upcomingMatches.slice(1).map((match) => (
+                      <MatchCard key={match._id} match={match} />
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-center max-w-md mx-auto bg-gray-900/50 border border-yellow-700/50 rounded-lg p-8">
+                <AlertTriangle className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
+                <h3 className="text-xl font-bold text-white mb-2">No Matches Available</h3>
+                <p className="text-gray-400">
+                  There are no matches scheduled for today. Please check back later.
                 </p>
               </div>
+            )}
+          </div>
+        </section>
+
+        {/* Past Results Section */}
+        <section id="past-results" className="py-20 md:py-24 bg-[#0A0A0A]">
+          <div className="container mx-auto px-4">
+            <div className="text-center mb-12">
+              <h2 className="text-3xl md:text-4xl font-bold">Past Results</h2>
+              <p className="text-gray-400 max-w-2xl mx-auto mt-2">
+                Review the outcomes and Alpha Engine performance for previous matches.
+              </p>
+            </div>
+
+            <div className="flex justify-center mb-8">
+              <div className="relative w-full max-w-xs">
+                  <CalendarIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <Input 
+                      type="date"
+                      value={selectedDate}
+                      onChange={(e) => setSelectedDate(e.target.value)}
+                      className="bg-gray-900 border-gray-700 pl-10 text-white w-full"
+                  />
+              </div>
+            </div>
+
+            {loadingPast ? (
+              <div className="text-center text-gray-400">Loading past results...</div>
+            ) : pastMatches.length > 0 ? (
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-                {matches.slice(1).map((match) => (
+                {pastMatches.map((match) => (
                   <MatchCard key={match._id} match={match} />
                 ))}
               </div>
-            </div>
-          </section>
-        )}
-
-        {/* No Matches Fallback */}
-        {matches.length === 0 && (
-          <section id="matches" className="py-32 text-center bg-black">
-            <div className="container mx-auto px-4">
-              <h2 className="text-2xl text-gray-500">No Upcoming Matches</h2>
-              <p className="text-gray-600">Please check back later for new opportunities.</p>
-            </div>
-          </section>
-        )}
-
-        {/* Call to Action Section */}
-        <section className="py-20 md:py-32 bg-gradient-to-br from-gray-900/50 to-black border-t border-gray-800">
-          <div className="container mx-auto px-4 text-center">
-            <div className="max-w-4xl mx-auto">
-              <h2 className="text-4xl md:text-6xl font-bold tracking-tighter mb-6 bg-clip-text text-transparent bg-gradient-to-b from-white to-gray-400">
-                Ready to Stake Your Claim?
-              </h2>
-              <p className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
-                Join thousands of sports fans who are already earning with AlphaStakes. Whether you trust your instincts or prefer data-driven decisions, we&apos;ve got the perfect pool for you.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-12">
-                <Button asChild size="lg" className="bg-white text-black font-bold hover:bg-gray-200 px-8 py-4 text-lg transform hover:scale-105 transition-transform duration-300">
-                  <Link href="#matches">Start Staking Now</Link>
-                </Button>
-                <Button asChild variant="outline" size="lg" className="border-gray-600 bg-black/30 text-gray-300 hover:bg-gray-800 hover:text-white px-8 py-4 text-lg transition-colors duration-300">
-                  <Link href="/leaderboard">View Hall of Fame</Link>
-                </Button>
+            ) : (
+              <div className="text-center max-w-md mx-auto bg-gray-900/50 border border-gray-700/50 rounded-lg p-8">
+                <AlertTriangle className="w-12 h-12 text-gray-500 mx-auto mb-4" />
+                <h3 className="text-xl font-bold text-white mb-2">No Results Found</h3>
+                <p className="text-gray-400">
+                  No matches with predictions were found for the selected date.
+                </p>
               </div>
-              <div className="grid md:grid-cols-3 gap-6 text-center">
-                <div className="p-4">
-                  <div className="text-2xl font-bold text-gray-300 mb-2">🚀</div>
-                  <h3 className="font-semibold text-white mb-1">Get Started Fast</h3>
-                  <p className="text-sm text-gray-400">Connect wallet and start staking in under 2 minutes</p>
-                </div>
-                <div className="p-4">
-                  <div className="text-2xl font-bold text-gray-300 mb-2">🎯</div>
-                  <h3 className="font-semibold text-white mb-1">Choose Your Strategy</h3>
-                  <p className="text-sm text-gray-400">Market sentiment or AI predictions - you decide</p>
-                </div>
-                <div className="p-4">
-                  <div className="text-2xl font-bold text-gray-300 mb-2">💰</div>
-                  <h3 className="font-semibold text-white mb-1">Earn Rewards</h3>
-                  <p className="text-sm text-gray-400">Win CHZ and climb the leaderboards</p>
-                </div>
-              </div>
-            </div>
+            )}
           </div>
         </section>
       </main>
-      
       <Footer />
     </div>
   );

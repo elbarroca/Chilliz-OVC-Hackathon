@@ -19,6 +19,42 @@ export interface Team {
     };
   }
 
+// Enhanced match interface with alpha analysis data
+export interface AlphaAnalysis {
+  expectedGoals: {
+    home: number;
+    away: number;
+  };
+  matchOutcomeChart: {
+    categories: string[];
+    series: {
+      name: string;
+      data: number[];
+    }[];
+  };
+  modelComparison?: {
+    monte_carlo: {
+      home: number;
+      draw: number;
+      away: number;
+    };
+    xgboost: {
+      home: number;
+      draw: number;
+      away: number;
+    };
+    neural_network: {
+      home: number;
+      draw: number;
+      away: number;
+    };
+  };
+}
+
+export interface MatchWithAnalysis extends Match {
+  alphaAnalysis?: AlphaAnalysis;
+}
+
 export interface UserStake {
     _id: string;
     userAddress: string;
