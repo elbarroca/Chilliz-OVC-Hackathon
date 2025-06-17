@@ -25,6 +25,8 @@ class MongoDBManager:
     _daily_games_collection: Optional[Any] = None
     _ml_ready_collection: Optional[Any] = None
     _match_processor_collection: Optional[Any] = None
+    _predictions_collection: Optional[Any] = None
+    _match_analysis_collection: Optional[Any] = None
     _max_retries: int = 3
     _initialized: bool = False
 
@@ -34,7 +36,7 @@ class MongoDBManager:
             cls._instance._initialized = False
         return cls._instance
 
-    def __init__(self, db_name: str = "agenticfc"):
+    def __init__(self, db_name: str = "Alpha"):
         if self._initialized:
             assert self._db is not None, "DB should be initialized if _initialized is True"
             if self._db.name == db_name:
@@ -66,7 +68,7 @@ class MongoDBManager:
                     connectTimeoutMS=15000,
                     socketTimeoutMS=60000,
                     maxPoolSize=50,
-                    appname="AgenticFC-ML",
+                    appname="Alpha-ML",
                     tls=False,
                 )
                 self._client.admin.command('ping')
@@ -84,6 +86,8 @@ class MongoDBManager:
                 self._daily_games_collection = self._db['daily_games']
                 self._ml_ready_collection = self._db['ml_ready']
                 self._match_processor_collection = self._db['match_processor']
+                self._predictions_collection = self._db['predictions']
+                self._match_analysis_collection = self._db['match_analysis']
 
                 assert self._matches_collection is not None
                 assert self._standings_collection is not None
@@ -93,8 +97,10 @@ class MongoDBManager:
                 assert self._daily_games_collection is not None
                 assert self._ml_ready_collection is not None
                 assert self._match_processor_collection is not None
+                assert self._predictions_collection is not None
+                assert self._match_analysis_collection is not None
 
-                logger.info("Initialized collections: matches, standings, odds, team_season_fixtures, statarea_stats, daily_games, ml_ready, match_processor")
+                logger.info("Initialized collections: matches, standings, odds, team_season_fixtures, statarea_stats, daily_games, ml_ready, match_processor, predictions, match_analysis")
 
                 self._initialized = True
                 self._create_indexes()
@@ -155,6 +161,18 @@ class MongoDBManager:
         # Assuming _id is the date string "YYYY-MM-DD"
         _create_index_safely(self._daily_games_collection, [("_id", 1)], name="daily_games_date_idx") # Removed unique=True
 
+        # --- Predictions Collection ---
+        # Use the date string as the primary identifier
+        _create_index_safely(self._predictions_collection, [("date", 1)], name="predictions_date_idx", unique=True)
+        _create_index_safely(self._predictions_collection, [("summary_stats.analysis_timestamp", -1)], name="predictions_timestamp_idx")
+
+        # --- Match Analysis Collection ---
+        # Use fixture_id as the primary identifier for individual match analyses
+        _create_index_safely(self._match_analysis_collection, [("fixture_info.fixture_id", 1)], name="match_analysis_fixture_id_idx", unique=True)
+        _create_index_safely(self._match_analysis_collection, [("fixture_info.date", 1)], name="match_analysis_date_idx")
+        _create_index_safely(self._match_analysis_collection, [("fixture_info.analysis_timestamp", -1)], name="match_analysis_timestamp_idx")
+
+
         # --- ML Ready Collection ---
         # Assuming _id is MatchID (preferred) or string fixture_id
         _create_index_safely(self._ml_ready_collection, [("_id", 1)], name="ml_doc_id_idx") # Removed unique=True # Primary lookup
@@ -206,6 +224,8 @@ class MongoDBManager:
         self._daily_games_collection = None
         self._ml_ready_collection = None
         self._match_processor_collection = None
+        self._predictions_collection = None
+        self._match_analysis_collection = None
         self._initialized = False
         MongoDBManager._instance = None
         logger.debug("MongoDBManager state reset complete.")
@@ -257,13 +277,12 @@ class MongoDBManager:
             
             return list(cursor)
         except Exception as e:
-            logger.error(f"Error fetching historical matches for team {team_id}: {e}", exc_info=True)
+            logger.error(f"Failed to retrieve historical matches for team {team_id}: {e}", exc_info=True)
             return []
 
     def get_historical_matches(self, team_id: int, before_date: datetime, limit: int = 25) -> List[Dict[str, Any]]:
         """
-        Retrieves historical matches for a team played strictly *before* a given date.
-        Uses the `matches` collection structure.
+        Retrieves historical matches for a team up to a certain date.
         """
         assert self._initialized and self._matches_collection is not None, "DB not initialized or matches collection missing"
         assert isinstance(team_id, int), "Team ID must be an integer"
@@ -1007,6 +1026,117 @@ class MongoDBManager:
         if document:
             return document.get("fixture_ids")
         return None
+
+    def save_predictions_analysis(self, analysis_data: Dict[str, Any]) -> bool:
+        """
+        Saves the entire prediction analysis payload for a specific date to the 'predictions' collection.
+        It uses the date as the unique identifier to update/insert the document.
+
+        Args:
+            analysis_data (Dict[str, Any]): The complete JSON payload from the analysis endpoint.
+
+        Returns:
+            bool: True if the operation was successful, False otherwise.
+        """
+        assert self._initialized and self._db is not None, "DB not initialized"
+        assert 'date' in analysis_data, "analysis_data must contain a 'date' key"
+        
+        # Create predictions collection if it doesn't exist
+        if not hasattr(self, '_predictions_collection') or self._predictions_collection is None:
+            self._predictions_collection = self._db['predictions']
+
+        try:
+            date_str = analysis_data['date']
+            logger.info(f"Saving prediction analysis for date: {date_str}")
+
+            # Use update_one with upsert=True to either insert a new document or replace an existing one for that date.
+            # The filter targets the 'date' field within the document.
+            result = self._predictions_collection.update_one(
+                {'date': date_str},
+                {'$set': analysis_data},
+                upsert=True
+            )
+
+            if result.upserted_id or result.modified_count > 0:
+                logger.info(f"Successfully saved/updated prediction analysis for {date_str}. (Upserted ID: {result.upserted_id}, Modified: {result.modified_count})")
+                return True
+            else:
+                logger.info(f"Prediction analysis data for {date_str} was already up to date. No changes made.")
+                return True
+
+        except OperationFailure as e:
+            logger.error(f"MongoDB operation failed while saving prediction analysis for date {analysis_data.get('date')}: {e}", exc_info=True)
+            return False
+        except Exception as e:
+            logger.error(f"An unexpected error occurred while saving prediction analysis: {e}", exc_info=True)
+            return False
+
+    def save_individual_match_analysis(self, match_analysis: Dict[str, Any]) -> bool:
+        """
+        Saves an individual match analysis to the 'match_analysis' collection.
+        Uses fixture_id as the unique identifier.
+
+        Args:
+            match_analysis (Dict[str, Any]): The individual match analysis data.
+
+        Returns:
+            bool: True if the operation was successful, False otherwise.
+        """
+        assert self._initialized and self._db is not None, "DB not initialized"
+        assert 'fixture_info' in match_analysis, "match_analysis must contain 'fixture_info'"
+        assert 'fixture_id' in match_analysis['fixture_info'], "fixture_info must contain 'fixture_id'"
+        
+        # Create match_analysis collection if it doesn't exist
+        if not hasattr(self, '_match_analysis_collection') or self._match_analysis_collection is None:
+            self._match_analysis_collection = self._db['match_analysis']
+
+        try:
+            fixture_id = match_analysis['fixture_info']['fixture_id']
+            logger.debug(f"Saving individual match analysis for fixture: {fixture_id}")
+
+            # Use fixture_id as the unique identifier for the collection
+            result = self._match_analysis_collection.update_one(
+                {'fixture_info.fixture_id': fixture_id},
+                {'$set': match_analysis},
+                upsert=True
+            )
+
+            if result.upserted_id or result.modified_count > 0:
+                logger.debug(f"Successfully saved/updated match analysis for fixture {fixture_id}. (Upserted ID: {result.upserted_id}, Modified: {result.modified_count})")
+                return True
+            else:
+                logger.debug(f"Match analysis for fixture {fixture_id} was already up to date. No changes made.")
+                return True
+
+        except OperationFailure as e:
+            logger.error(f"MongoDB operation failed while saving match analysis for fixture {match_analysis.get('fixture_info', {}).get('fixture_id')}: {e}", exc_info=True)
+            return False
+        except Exception as e:
+            logger.error(f"An unexpected error occurred while saving match analysis: {e}", exc_info=True)
+            return False
+
+    def get_individual_match_analysis(self, fixture_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves an individual match analysis by fixture ID from the 'match_analysis' collection.
+
+        Args:
+            fixture_id (str): The fixture ID to search for.
+
+        Returns:
+            Optional[Dict[str, Any]]: The match analysis data if found, None otherwise.
+        """
+        assert self._initialized and self._db is not None, "DB not initialized"
+        assert isinstance(fixture_id, str) and fixture_id, "Fixture ID must be a non-empty string"
+        
+        # Create match_analysis collection if it doesn't exist
+        if not hasattr(self, '_match_analysis_collection') or self._match_analysis_collection is None:
+            self._match_analysis_collection = self._db['match_analysis']
+
+        try:
+            return self._match_analysis_collection.find_one({'fixture_info.fixture_id': fixture_id})
+        except Exception as e:
+            logger.error(f"Error retrieving match analysis for fixture {fixture_id}: {e}", exc_info=True)
+            return None
 
 # Create a global instance for backward compatibility
 # This allows other modules to import db_manager as they expect

@@ -1,24 +1,19 @@
 import { type GetServerSideProps, type NextPage } from "next";
 import Image from "next/image";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { StakingInterface, type ParlaySelectionDetails } from "@/components/features/StakingInterface";
 import { AlphaInsight } from "@/components/features/AlphaInsight";
 import { PredictionChart } from "@/components/features/PredictionChart";
-import { ParlayBuilder } from "@/components/features/ParlayBuilder";
-import { UpcomingMatchesSelector, type ParlaySelection } from "@/components/features/UpcomingMatchesSelector";
 import { RecommendedMatches } from "@/components/features/RecommendedMatches";
 import { FloatingParlay } from "@/components/features/FloatingParlay";
-import { type MatchWithAnalysis, type AlphaAnalysis } from "@/types";
-import { Calendar, Clock, Zap } from "lucide-react";
+import { ParlayBuilder } from "@/components/features/ParlayBuilder";
+import { type MatchWithAnalysis } from "@/types";
+import { useParlayState } from "@/hooks/use-parlay-state";
+import { Calendar, Users, Clock, Zap } from "lucide-react";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion"
 
 export const getServerSideProps: GetServerSideProps = async (context) => {
   const { id } = context.params!;
@@ -53,80 +48,38 @@ const MatchPage: NextPage<{ match: MatchWithAnalysis }> = ({ match }) => {
   const [teamBLogoError, setTeamBLogoError] = useState(false);
   const defaultLogo = "https://s2.coinmarketcap.com/static/img/coins/64x64/24460.png";
 
-  const [parlaySelections, setParlaySelections] = useState<ParlaySelectionDetails[]>([]);
-
-  // Debug effect to track parlay changes
-  useEffect(() => {
-    console.log('Parlay selections updated:', parlaySelections);
-  }, [parlaySelections]);
+  // Use persistent parlay state
+  const {
+    parlaySelections,
+    isLoaded,
+    handleSelectBet,
+    handleRemoveParlayItem,
+    handleClearParlay,
+    handlePlaceParlayBet,
+    handlePlaceSingleBet
+  } = useParlayState();
 
   const matchDate = new Date(match.matchTime);
   
   const getAlphaPick = () => {
     const { winA_prob, winB_prob, draw_prob } = match.alphaPredictions;
-    if (winA_prob > winB_prob && winA_prob > draw_prob) return { team: match.teamA.name, confidence: (winA_prob * 100).toFixed(1) };
-    if (winB_prob > winA_prob && winB_prob > draw_prob) return { team: match.teamB.name, confidence: (winB_prob * 100).toFixed(1) };
-    return { team: 'Draw', confidence: (draw_prob * 100).toFixed(1) };
+    if (winA_prob > winB_prob && winA_prob > draw_prob) return { team: match.teamA.name, confidence: (winA_prob * 100).toFixed(0) };
+    if (winB_prob > winA_prob && winB_prob > draw_prob) return { team: match.teamB.name, confidence: (winB_prob * 100).toFixed(0) };
+    return { team: 'Draw', confidence: (draw_prob * 100).toFixed(0) };
   };
   const alphaPick = getAlphaPick();
 
-  const handleSelectBet = (selection: ParlaySelectionDetails | ParlaySelection) => {
-    console.log('handleSelectBet called with:', selection); // Debug log
-    console.log('Current parlay selections before update:', parlaySelections); // Debug log
-    setParlaySelections(prev => {
-        const currentSelections = [...(prev || [])];
-        
-        // Ensure every selection is in the new `ParlaySelectionDetails` format
-        const newSelection: ParlaySelectionDetails = 'poolType' in selection 
-            ? selection 
-            : {
-                ...selection,
-                poolType: 'market', // Assume 'market' for older selection types
-            };
-
-        const existingSelectionIndex = currentSelections.findIndex(s => s.matchId === newSelection.matchId);
-
-        if (existingSelectionIndex > -1) {
-            const newSelections = [...currentSelections];
-            // If the exact same bet is clicked again, deselect it.
-            if (newSelections[existingSelectionIndex].selectionId === newSelection.selectionId &&
-                newSelections[existingSelectionIndex].poolType === newSelection.poolType) 
-            {
-                newSelections.splice(existingSelectionIndex, 1);
-                return newSelections;
-            }
-            // If a different bet for the same match is clicked, replace the old one.
-            newSelections[existingSelectionIndex] = newSelection;
-            return newSelections;
-        } else {
-            // Otherwise, add the new selection to the parlay.
-            const updatedSelections = [...currentSelections, newSelection];
-            console.log('Adding new selection, updated parlay:', updatedSelections); // Debug log
-            return updatedSelections;
-        }
-    });
-  };
-
-  const handleRemoveParlayItem = (matchId: string) => {
-    setParlaySelections(prev => prev.filter(s => s.matchId !== matchId));
-  };
-
-  const handleClearParlay = () => {
-    setParlaySelections([]);
-  };
-
-  const handlePlaceParlayBet = (amount: number) => {
-    // TODO: Implement actual parlay betting logic
-    console.log('Placing parlay bet for:', amount, 'CHZ with selections:', parlaySelections);
-    alert(`Parlay bet of ${amount} CHZ placed! (See console for details)`);
-    handleClearParlay();
-  };
-
-  const handlePlaceSingleBet = (selection: ParlaySelectionDetails, amount: number) => {
-    // TODO: Implement actual single betting logic
-    console.log('Placing single bet for:', amount, 'CHZ with selection:', selection);
-    alert(`Single bet of ${amount} CHZ placed on ${selection.selectionName}! (See console for details)`);
-  };
+  // Show loading state until parlay state is loaded
+  if (!isLoaded) {
+    return (
+      <div className="min-h-screen bg-[#0A0A0A] text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+          <p className="text-gray-400">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white flex flex-col">

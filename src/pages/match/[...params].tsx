@@ -8,6 +8,7 @@ import { AlphaInsight } from "@/components/features/AlphaInsight";
 import { PredictionChart } from "@/components/features/PredictionChart";
 import { FloatingParlay } from "@/components/features/FloatingParlay";
 import { type MatchWithAnalysis } from "@/types";
+import { useParlayState } from "@/hooks/use-parlay-state";
 import { Calendar, Users, Clock, Zap } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -62,8 +63,18 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
 const MatchPage: NextPage<{ match: MatchWithAnalysis }> = ({ match }) => {
   const [teamALogoError, setTeamALogoError] = useState(false);
   const [teamBLogoError, setTeamBLogoError] = useState(false);
-  const [parlaySelections, setParlaySelections] = useState<ParlaySelectionDetails[]>([]);
   const defaultLogo = "https://s2.coinmarketcap.com/static/img/coins/64x64/24460.png";
+
+  // Use persistent parlay state
+  const {
+    parlaySelections,
+    isLoaded,
+    handleSelectBet,
+    handleRemoveParlayItem,
+    handleClearParlay,
+    handlePlaceParlayBet,
+    handlePlaceSingleBet
+  } = useParlayState();
 
   const matchDate = new Date(match.matchTime);
   
@@ -75,41 +86,17 @@ const MatchPage: NextPage<{ match: MatchWithAnalysis }> = ({ match }) => {
   };
   const alphaPick = getAlphaPick();
 
-  const handleSelectBet = (selection: ParlaySelectionDetails) => {
-    console.log('Adding to parlay:', selection);
-    setParlaySelections(prev => {
-      // Check if this match already has a selection in the parlay
-      const existingIndex = prev.findIndex(s => s.matchId === selection.matchId);
-      if (existingIndex !== -1) {
-        // Replace existing selection for this match
-        const updated = [...prev];
-        updated[existingIndex] = selection;
-        return updated;
-      } else {
-        // Add new selection
-        return [...prev, selection];
-      }
-    });
-  };
-
-  const handleRemoveParlayItem = (matchId: string) => {
-    setParlaySelections(prev => prev.filter(s => s.matchId !== matchId));
-  };
-
-  const handleClearParlay = () => {
-    setParlaySelections([]);
-  };
-
-  const handlePlaceParlayBet = (amount: number) => {
-    console.log('Placing parlay bet for:', amount, 'CHZ with selections:', parlaySelections);
-    alert(`Parlay bet of ${amount} CHZ placed! (See console for details)`);
-    handleClearParlay();
-  };
-
-  const handlePlaceSingleBet = (selection: ParlaySelectionDetails, amount: number) => {
-    console.log('Placing single bet for:', amount, 'CHZ with selection:', selection);
-    alert(`Single bet of ${amount} CHZ placed on ${selection.selectionName}! (See console for details)`);
-  };
+  // Show loading state until parlay state is loaded
+  if (!isLoaded) {
+    return (
+      <div className="min-h-screen bg-[#0A0A0A] text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+          <p className="text-gray-400">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white flex flex-col">

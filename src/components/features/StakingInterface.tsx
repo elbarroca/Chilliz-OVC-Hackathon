@@ -117,48 +117,62 @@ export function StakingInterface({ match, onSelectBet, onPlaceSingleBet, parlayS
     if (!isActive) return null;
     
     return (
-      <div className="absolute top-full left-0 right-0 z-20 mt-2 p-4 bg-gray-800 border border-gray-600 rounded-lg shadow-xl animate-in slide-in-from-top-2 duration-200">
-        <h4 className="font-bold text-white mb-3 flex items-center gap-2">
-          <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
-          {betDetails.selectionName}
-        </h4>
+      <div className="absolute top-full left-0 right-0 z-20 mt-2 p-4 bg-gradient-to-br from-gray-800 to-gray-900 border border-gray-600 rounded-xl shadow-2xl animate-in slide-in-from-top-2 duration-200">
+        <div className="flex items-center justify-between mb-4">
+          <h4 className="font-bold text-white flex items-center gap-2">
+            <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+            {betDetails.selectionName}
+          </h4>
+          <div className="text-right">
+            <span className="text-2xl font-bold text-green-400 font-mono">{betDetails.odds.toFixed(2)}x</span>
+            <p className="text-xs text-gray-400">Odds</p>
+          </div>
+        </div>
+        
         <div className="space-y-3">
+          {/* Add to Parlay - Primary Action */}
           <Button
             onClick={handleAddToParlay}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center gap-2 transition-all duration-200 hover:scale-105"
+            className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-bold py-3 rounded-lg transition-all duration-200 hover:scale-105 shadow-lg"
           >
-            <Plus size={16} />
-            Add to Parlay ({betDetails.odds.toFixed(2)}x)
+            <Plus size={18} className="mr-2" />
+            Add to Parlay
           </Button>
           
+          {/* Single Bet Section */}
           <div className="border-t border-gray-600 pt-3">
-            <p className="text-xs text-gray-400 mb-2">Or place a single bet:</p>
-            <div className="flex gap-2">
+            <p className="text-sm text-gray-300 mb-3 font-medium">Or place single bet:</p>
+            <div className="space-y-3">
               <Input
                 type="number"
-                placeholder="Amount (CHZ)"
+                placeholder="Enter amount (CHZ)"
                 value={singleBetAmount}
                 onChange={(e) => setSingleBetAmount(e.target.value)}
-                className="flex-1 bg-gray-700 border-gray-600 text-white"
+                className="w-full bg-gray-700 border-gray-500 text-white placeholder-gray-400 rounded-lg py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 min="0"
                 step="0.01"
               />
+              
+              {singleBetAmount && parseFloat(singleBetAmount) > 0 && (
+                <div className="p-3 bg-gradient-to-r from-green-900/30 to-blue-900/30 border border-green-600/30 rounded-lg">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-300">Potential Win:</span>
+                    <span className="text-lg font-bold text-green-400 font-mono">
+                      {(parseFloat(singleBetAmount) * betDetails.odds).toFixed(2)} CHZ
+                    </span>
+                  </div>
+                </div>
+              )}
+              
               <Button
                 onClick={handlePlaceSingle}
                 disabled={!singleBetAmount || parseFloat(singleBetAmount) <= 0}
-                className="bg-green-600 hover:bg-green-700 text-white flex items-center gap-2 transition-all duration-200 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-2.5 rounded-lg transition-all duration-200 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
               >
-                <Wallet size={16} />
-                Bet Now
+                <Wallet size={16} className="mr-2" />
+                Place Bet Now
               </Button>
             </div>
-            {singleBetAmount && parseFloat(singleBetAmount) > 0 && (
-              <div className="mt-2 p-2 bg-green-900/20 border border-green-700/50 rounded text-center">
-                <p className="text-sm text-green-400 font-medium">
-                  Potential win: <span className="font-bold">{(parseFloat(singleBetAmount) * betDetails.odds).toFixed(2)} CHZ</span>
-                </p>
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -214,11 +228,17 @@ export function StakingInterface({ match, onSelectBet, onPlaceSingleBet, parlayS
                                 variant={'ghost'}
                                 size="lg"
                                 onClick={() => handleSelect(betDetails)}
-                                className={`w-full justify-between text-base p-4 h-auto transition-all duration-200 rounded-md ${isSelected ? 'bg-blue-600/50 border border-blue-400/50' : isDropdownActive ? 'bg-gray-700' : 'bg-gray-800/50 hover:bg-gray-700/80'}`}
+                                className={`w-full justify-between text-base p-4 h-auto transition-all duration-200 rounded-md ${
+                                    isSelected 
+                                        ? 'bg-gradient-to-r from-blue-600/60 to-purple-600/60 border border-blue-400/60 shadow-lg shadow-blue-500/25' 
+                                        : isDropdownActive 
+                                            ? 'bg-gray-700' 
+                                            : 'bg-gray-800/50 hover:bg-gray-700/80'
+                                }`}
                             >
                                 <div className="flex items-center gap-2">
                                   <span className="font-semibold text-gray-300">{name}</span>
-                                  {isSelected && <span className="text-blue-400 text-xs">✓ In Parlay</span>}
+                                  {isSelected && <span className="text-blue-300 text-xs font-bold bg-blue-500/20 px-2 py-1 rounded-full">✓ In Parlay</span>}
                                 </div>
                                 <span className="font-mono text-lg font-bold text-green-400">{data.payout.toFixed(2)}x</span>
                             </Button>
@@ -267,11 +287,17 @@ export function StakingInterface({ match, onSelectBet, onPlaceSingleBet, parlayS
                                 variant={'ghost'}
                                 size="lg"
                                 onClick={() => handleSelect(betDetails)}
-                                className={`w-full justify-between text-base p-4 h-auto transition-all duration-200 rounded-md ${isSelected ? 'bg-blue-600/50 border border-blue-400/50' : isDropdownActive ? 'bg-gray-700' : 'bg-gray-800/50 hover:bg-gray-700/80'}`}
+                                className={`w-full justify-between text-base p-4 h-auto transition-all duration-200 rounded-md ${
+                                    isSelected 
+                                        ? 'bg-gradient-to-r from-blue-600/60 to-purple-600/60 border border-blue-400/60 shadow-lg shadow-blue-500/25' 
+                                        : isDropdownActive 
+                                            ? 'bg-gray-700' 
+                                            : 'bg-gray-800/50 hover:bg-gray-700/80'
+                                }`}
                             >
                                 <div className="flex items-center gap-2">
                                   <span className="font-semibold text-gray-300">{label}</span>
-                                  {isSelected && <span className="text-blue-400 text-xs">✓ In Parlay</span>}
+                                  {isSelected && <span className="text-blue-300 text-xs font-bold bg-blue-500/20 px-2 py-1 rounded-full">✓ In Parlay</span>}
                                 </div>
                                 <span className="font-mono text-lg font-bold text-green-400">{odds.toFixed(2)}x</span>
                             </Button>
@@ -329,11 +355,17 @@ export function StakingInterface({ match, onSelectBet, onPlaceSingleBet, parlayS
                                 variant={'ghost'}
                                 size="lg"
                                 onClick={() => handleSelect(betDetails)}
-                                className={`w-full justify-between text-base p-4 h-auto transition-all duration-200 rounded-md ${isSelected ? 'bg-blue-600/50 border border-blue-400/50' : isDropdownActive ? 'bg-gray-700' : 'bg-gray-800/50 hover:bg-gray-700/80'}`}
+                                className={`w-full justify-between text-base p-4 h-auto transition-all duration-200 rounded-md ${
+                                    isSelected 
+                                        ? 'bg-gradient-to-r from-blue-600/60 to-purple-600/60 border border-blue-400/60 shadow-lg shadow-blue-500/25' 
+                                        : isDropdownActive 
+                                            ? 'bg-gray-700' 
+                                            : 'bg-gray-800/50 hover:bg-gray-700/80'
+                                }`}
                             >
                                 <div className="flex items-center gap-2">
                                   <span className="font-semibold text-gray-300">{label}</span>
-                                  {isSelected && <span className="text-blue-400 text-xs">✓ In Parlay</span>}
+                                  {isSelected && <span className="text-blue-300 text-xs font-bold bg-blue-500/20 px-2 py-1 rounded-full">✓ In Parlay</span>}
                                 </div>
                                 <span className="font-mono text-lg font-bold text-green-400">{odds.toFixed(2)}x</span>
                             </Button>
