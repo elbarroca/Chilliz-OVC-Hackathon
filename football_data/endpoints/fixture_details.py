@@ -3,6 +3,7 @@ import requests
 from datetime import datetime
 from typing import Dict,Any, Optional
 import logging
+import time
 from football_data.endpoints.api_manager import api_manager
 from football_data.get_data.api_football.db_mongo import db_manager, MongoDBManager
 
@@ -27,33 +28,51 @@ class FixtureDetailsFetcher:
         
         logger.info("FixtureDetailsFetcher initialized successfully")
 
-    def _make_api_request(self, endpoint: str, params: Dict = None) -> Dict:
-        """Make API request with rate limit handling."""
+    def _make_api_request(self, endpoint: str, params: Optional[Dict[str, Any]] = None, max_retries: int = 4) -> Dict:
+        """Make API request with robust error handling and key rotation."""
         url = f"{self.base_url}/{endpoint}"
+        if params is None:
+            params = {}
         logger.info(f"Making API request to {url}")
         
-        try:
-            # Get active API key and headers from API manager
-            _, headers = self.api_manager.get_active_api_key()
-            
-            response = requests.get(url, headers=headers, params=params)
-            
-            if response.status_code == 429:  # Rate limit exceeded
-                logger.warning("Rate limit exceeded, rotating API key...")
-                self.api_manager.handle_rate_limit(headers["x-rapidapi-key"])
-                # Retry with new key
-                _, new_headers = self.api_manager.get_active_api_key()
-                response = requests.get(url, headers=new_headers, params=params)
-            
-            response.raise_for_status()
-            return response.json()
-            
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP Error: {str(e)}")
-            return {"status": "failed", "message": str(e)}
-        except Exception as e:
-            logger.error(f"Error making API request: {str(e)}")
-            return {"status": "failed", "message": str(e)}
+        for attempt in range(max_retries):
+            try:
+                # Get active API key and headers from API manager
+                current_key, headers = self.api_manager.get_active_api_key()
+                
+                response = requests.get(url, headers=headers, params=params, timeout=15)
+                
+                # Handle specific HTTP status codes
+                if response.status_code == 429:  # Rate limit
+                    logger.warning(f"Rate limit hit on key ...{current_key[-4:]}. Rotating. Attempt {attempt + 1}/{max_retries}.")
+                    self.api_manager.handle_rate_limit(current_key)
+                    continue  # Retry with a new key after a potential wait
+                
+                if response.status_code == 403: # Forbidden
+                    logger.error(f"Forbidden (403) on key ...{current_key[-4:]}. This key is likely invalid or unsubscribed. Rotating. Attempt {attempt + 1}/{max_retries}.")
+                    self.api_manager.handle_fatal_error(current_key)
+                    continue # Immediately retry with a different key
+
+                response.raise_for_status()  # Raise HTTPError for other bad responses (4xx or 5xx)
+                return response.json()
+                
+            except requests.exceptions.HTTPError as e:
+                logger.error(f"HTTP Error on attempt {attempt + 1}/{max_retries}: {str(e)}")
+                # For server errors (5xx), a small delay before retrying might be good.
+                if e.response.status_code >= 500:
+                    time.sleep(1)
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Request failed on attempt {attempt + 1}/{max_retries}: {e}", exc_info=True)
+                time.sleep(1) # Wait a bit before retrying on connection errors etc.
+            except Exception as e:
+                logger.error(f"Unexpected error on attempt {attempt + 1}/{max_retries}: {str(e)}", exc_info=True)
+                # Force rotation on any unexpected error during request, as it might be key-related
+                if 'current_key' in locals():
+                    self.api_manager.handle_fatal_error(current_key)
+                time.sleep(1)
+
+        logger.critical(f"API request to {url} failed after {max_retries} retries.")
+        return {"status": "failed", "message": f"API request failed after {max_retries} retries."}
 
     def get_fixture_details(self, fixture_id: int, match_date: Optional[datetime] = None, season: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """
@@ -147,7 +166,7 @@ def main():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    fetcher = FixtureDetailsFetcher()
+    fetcher = FixtureDetailsFetcher(db_manager_instance=db_manager)
     # Example usage
     # fetcher.get_fixture_details(fixture_id=710815)
 

@@ -27,6 +27,8 @@ class MongoDBManager:
     _match_processor_collection: Optional[Any] = None
     _predictions_collection: Optional[Any] = None
     _match_analysis_collection: Optional[Any] = None
+    _match_results_collection: Optional[Any] = None
+    _result_check_queue_collection: Optional[Any] = None
     _max_retries: int = 3
     _initialized: bool = False
 
@@ -88,6 +90,8 @@ class MongoDBManager:
                 self._match_processor_collection = self._db['match_processor']
                 self._predictions_collection = self._db['predictions']
                 self._match_analysis_collection = self._db['match_analysis']
+                self._match_results_collection = self._db['match_results']
+                self._result_check_queue_collection = self._db['result_check_queue']
 
                 assert self._matches_collection is not None
                 assert self._standings_collection is not None
@@ -99,8 +103,10 @@ class MongoDBManager:
                 assert self._match_processor_collection is not None
                 assert self._predictions_collection is not None
                 assert self._match_analysis_collection is not None
+                assert self._match_results_collection is not None
+                assert self._result_check_queue_collection is not None
 
-                logger.info("Initialized collections: matches, standings, odds, team_season_fixtures, statarea_stats, daily_games, ml_ready, match_processor, predictions, match_analysis")
+                logger.info("Initialized collections: matches, standings, odds, team_season_fixtures, statarea_stats, daily_games, ml_ready, match_processor, predictions, match_analysis, match_results, result_check_queue")
 
                 self._initialized = True
                 self._create_indexes()
@@ -172,6 +178,13 @@ class MongoDBManager:
         _create_index_safely(self._match_analysis_collection, [("fixture_info.date", 1)], name="match_analysis_date_idx")
         _create_index_safely(self._match_analysis_collection, [("fixture_info.analysis_timestamp", -1)], name="match_analysis_timestamp_idx")
 
+        # --- Match Results Collection ---
+        _create_index_safely(self._match_results_collection, [("fixture_id", 1)], name="match_results_fixture_id_idx", unique=True)
+        _create_index_safely(self._match_results_collection, [("processed_at_utc", -1)], name="match_results_processed_at_idx")
+
+        # --- Result Check Queue Collection ---
+        _create_index_safely(self._result_check_queue_collection, [("check_after_utc", 1)], name="queue_check_time_idx")
+        _create_index_safely(self._result_check_queue_collection, [("fixture_id", 1)], name="queue_fixture_id_idx", unique=True)
 
         # --- ML Ready Collection ---
         # Assuming _id is MatchID (preferred) or string fixture_id
@@ -226,6 +239,8 @@ class MongoDBManager:
         self._match_processor_collection = None
         self._predictions_collection = None
         self._match_analysis_collection = None
+        self._match_results_collection = None
+        self._result_check_queue_collection = None
         self._initialized = False
         MongoDBManager._instance = None
         logger.debug("MongoDBManager state reset complete.")
@@ -633,12 +648,8 @@ class MongoDBManager:
         """
         Check if prediction results for a specific fixture ID already exist.
         """
-        assert self._initialized and self._db is not None, "DB not initialized"
+        assert self._initialized and self._predictions_collection is not None, "DB not initialized or predictions collection missing"
         assert isinstance(fixture_id, str) and fixture_id, "Fixture ID must be a non-empty string"
-        
-        # Create predictions collection if it doesn't exist
-        if not hasattr(self, '_predictions_collection') or self._predictions_collection is None:
-            self._predictions_collection = self._db['predictions']
         
         try:
             return self._predictions_collection.count_documents({'_id': fixture_id}) > 0
@@ -835,15 +846,11 @@ class MongoDBManager:
         """
         Save prediction results to a dedicated collection for tracking.
         """
-        assert self._initialized and self._db is not None, "DB not initialized"
+        assert self._initialized and self._predictions_collection is not None, "DB not initialized or predictions collection missing"
         assert isinstance(prediction_data, dict), "prediction_data must be a dictionary"
         
         fixture_id = prediction_data.get("fixture_id")
         assert fixture_id, "Prediction data must contain 'fixture_id'"
-        
-        # Create predictions collection if it doesn't exist
-        if not hasattr(self, '_predictions_collection') or self._predictions_collection is None:
-            self._predictions_collection = self._db['predictions']
         
         doc_id = str(fixture_id)
         prediction_data_to_save = prediction_data.copy()
@@ -871,12 +878,8 @@ class MongoDBManager:
         """
         Get prediction results for a specific fixture.
         """
-        assert self._initialized and self._db is not None, "DB not initialized"
+        assert self._initialized and self._predictions_collection is not None, "DB not initialized or predictions collection missing"
         assert isinstance(fixture_id, str) and fixture_id, "Fixture ID must be a non-empty string"
-        
-        # Create predictions collection if it doesn't exist
-        if not hasattr(self, '_predictions_collection') or self._predictions_collection is None:
-            self._predictions_collection = self._db['predictions']
         
         return self._predictions_collection.find_one({"_id": fixture_id})
 
@@ -1038,13 +1041,9 @@ class MongoDBManager:
         Returns:
             bool: True if the operation was successful, False otherwise.
         """
-        assert self._initialized and self._db is not None, "DB not initialized"
+        assert self._initialized and self._predictions_collection is not None, "DB not initialized or predictions collection missing"
         assert 'date' in analysis_data, "analysis_data must contain a 'date' key"
         
-        # Create predictions collection if it doesn't exist
-        if not hasattr(self, '_predictions_collection') or self._predictions_collection is None:
-            self._predictions_collection = self._db['predictions']
-
         try:
             date_str = analysis_data['date']
             logger.info(f"Saving prediction analysis for date: {date_str}")
@@ -1082,14 +1081,10 @@ class MongoDBManager:
         Returns:
             bool: True if the operation was successful, False otherwise.
         """
-        assert self._initialized and self._db is not None, "DB not initialized"
+        assert self._initialized and self._match_analysis_collection is not None, "DB not initialized or match_analysis collection missing"
         assert 'fixture_info' in match_analysis, "match_analysis must contain 'fixture_info'"
         assert 'fixture_id' in match_analysis['fixture_info'], "fixture_info must contain 'fixture_id'"
         
-        # Create match_analysis collection if it doesn't exist
-        if not hasattr(self, '_match_analysis_collection') or self._match_analysis_collection is None:
-            self._match_analysis_collection = self._db['match_analysis']
-
         try:
             fixture_id = match_analysis['fixture_info']['fixture_id']
             logger.debug(f"Saving individual match analysis for fixture: {fixture_id}")
@@ -1125,13 +1120,9 @@ class MongoDBManager:
         Returns:
             Optional[Dict[str, Any]]: The match analysis data if found, None otherwise.
         """
-        assert self._initialized and self._db is not None, "DB not initialized"
+        assert self._initialized and self._match_analysis_collection is not None, "DB not initialized or match_analysis collection missing"
         assert isinstance(fixture_id, str) and fixture_id, "Fixture ID must be a non-empty string"
         
-        # Create match_analysis collection if it doesn't exist
-        if not hasattr(self, '_match_analysis_collection') or self._match_analysis_collection is None:
-            self._match_analysis_collection = self._db['match_analysis']
-
         try:
             return self._match_analysis_collection.find_one({'fixture_info.fixture_id': fixture_id})
         except Exception as e:
@@ -1161,6 +1152,176 @@ class MongoDBManager:
     def is_initialized(self) -> bool:
         """Checks if the database manager is properly initialized."""
         return self._initialized and self._client is not None and self._db is not None
+
+    def save_match_result(self, result_data: Dict[str, Any]) -> bool:
+        """
+        Saves a match result to the 'match_results' collection.
+        Uses fixture_id as the unique identifier.
+        """
+        assert self._initialized and self._match_results_collection is not None, "DB not initialized or match_results collection missing"
+        assert 'fixture_id' in result_data, "result_data must contain 'fixture_id'"
+
+        try:
+            fixture_id = str(result_data['fixture_id'])
+            
+            # The filter should be on the document's unique _id
+            filter_query = {'_id': fixture_id}
+            
+            # The update payload should not contain the immutable _id field
+            update_payload = result_data.copy()
+            update_payload.pop('_id', None)
+
+            result = self._match_results_collection.update_one(
+                filter_query,
+                {'$set': update_payload},
+                upsert=True
+            )
+
+            if result.upserted_id or result.modified_count > 0:
+                logger.info(f"Successfully saved/updated match result for fixture {fixture_id}.")
+                return True
+            else:
+                # This case might not be hit if a field like 'processed_at_utc' always changes
+                logger.info(f"Match result for fixture {fixture_id} was already up to date.")
+                return True
+
+        except OperationFailure as e:
+            # This catch block might be redundant now but is good for safety.
+            if e.code == 11000:
+                 logger.warning(f"Caught a duplicate key error for fixture {fixture_id} which should have been an update. This may indicate an issue with the filter logic. Error: {e}")
+                 return True # Assuming data is already present
+            logger.error(f"MongoDB operation failed while saving match result for fixture {result_data.get('fixture_id')}: {e}", exc_info=True)
+            return False
+        except Exception as e:
+            logger.error(f"An unexpected error occurred while saving match result: {e}", exc_info=True)
+            return False
+
+    def get_match_details_for_scheduling(self, fixture_ids: List[int]) -> List[Dict[str, Any]]:
+        """
+        Retrieves essential details (fixture_id, date) for given fixture IDs
+        from the 'matches' collection to be used for scheduling result checks.
+        """
+        assert self._initialized and self._matches_collection is not None, "DB not initialized or matches collection missing"
+        if not fixture_ids:
+            return []
+        
+        fixture_ids_str = [str(fid) for fid in fixture_ids]
+        query = {"_id": {"$in": fixture_ids_str}}
+        projection = {
+            "_id": 1,
+            "fixture_details.fixture.date": 1
+        }
+        
+        cursor = self._matches_collection.find(query, projection)
+        
+        details = []
+        for doc in cursor:
+            try:
+                details.append({
+                    "fixture_id": int(doc["_id"]),
+                    "date": doc["fixture_details"]["fixture"]["date"]
+                })
+            except (KeyError, ValueError, TypeError) as e:
+                logger.warning(f"Could not process match doc for scheduling (ID: {doc.get('_id')}): {e}")
+                continue
+        
+        return details
+
+    def schedule_result_checks(self, fixtures_to_schedule: List[Dict[str, Any]], check_delay_minutes: int = 115) -> bool:
+        """
+        Schedules fixtures to have their results checked in the future.
+        It avoids adding duplicates if a fixture is already in the queue.
+
+        Args:
+            fixtures_to_schedule (List[Dict[str, Any]]): List of dicts, each with 'fixture_id' and 'date'.
+            check_delay_minutes (int): How many minutes after game start to check for results.
+        """
+        assert self._initialized and self._result_check_queue_collection is not None, "DB not initialized or queue collection missing"
+        if not fixtures_to_schedule:
+            return True
+
+        operations = []
+        for fixture in fixtures_to_schedule:
+            try:
+                fixture_id = int(fixture["fixture_id"])
+                match_date_str = fixture["date"]
+                match_date = datetime.fromisoformat(match_date_str.replace('Z', '+00:00'))
+                
+                check_after_utc = match_date + timedelta(minutes=check_delay_minutes)
+                
+                # Use update_one with upsert to avoid duplicates.
+                # The filter checks for fixture_id, and the $setOnInsert operator
+                # ensures we only set the fields when a new document is created.
+                operations.append(
+                    UpdateOne(
+                        {"fixture_id": fixture_id},
+                        {
+                            "$setOnInsert": {
+                                "fixture_id": fixture_id,
+                                "check_after_utc": check_after_utc,
+                                "scheduled_at_utc": datetime.now(timezone.utc)
+                            }
+                        },
+                        upsert=True
+                    )
+                )
+            except (KeyError, ValueError, TypeError) as e:
+                logger.warning(f"Skipping scheduling for fixture due to invalid data: {fixture}. Error: {e}")
+                continue
+        
+        if not operations:
+            logger.info("No valid fixtures to schedule for result checking.")
+            return True
+
+        try:
+            result = self._result_check_queue_collection.bulk_write(operations, ordered=False)
+            logger.info(f"Scheduled result checks. New entries added: {result.upserted_count}.")
+            return True
+        except BulkWriteError as bwe:
+            # It's common to have duplicate key errors here if upsert races, which is fine.
+            # We only care about other, more serious errors.
+            non_duplicate_errors = [err for err in bwe.details.get('writeErrors', []) if err.get('code') != 11000]
+            if non_duplicate_errors:
+                logger.error(f"Serious bulk write error scheduling result checks: {non_duplicate_errors}")
+                return False
+            else:
+                logger.info(f"Bulk write for scheduling completed with some expected duplicate key ignores.")
+                return True
+        except Exception as e:
+            logger.error(f"Unexpected error scheduling result checks: {e}", exc_info=True)
+            return False
+
+    def get_due_result_checks(self) -> List[int]:
+        """
+        Atomically finds and removes due result checks from the queue.
+
+        Returns:
+            List[int]: A list of fixture IDs that are due for a result check.
+        """
+        assert self._initialized and self._result_check_queue_collection is not None, "DB not initialized or queue collection missing"
+        
+        due_fixtures = []
+        now_utc = datetime.now(timezone.utc)
+
+        while True:
+            # Atomically find a document that is due and delete it.
+            # This prevents multiple workers from picking up the same job.
+            doc = self._result_check_queue_collection.find_one_and_delete(
+                {"check_after_utc": {"$lte": now_utc}}
+            )
+            
+            if doc:
+                fixture_id = doc.get("fixture_id")
+                if fixture_id:
+                    due_fixtures.append(fixture_id)
+            else:
+                # No more due documents found
+                break
+        
+        if due_fixtures:
+            logger.info(f"Found and removed {len(due_fixtures)} fixtures from the result check queue.")
+            
+        return due_fixtures
 
 # Create a global instance for backward compatibility
 # This allows other modules to import db_manager as they expect

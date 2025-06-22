@@ -8,13 +8,13 @@ import type { NextApiRequest, NextApiResponse } from 'next';
  * to prevent unauthorized access.
  */
 export const config = {
-  maxDuration: 540, // 9 minutes, to accommodate multiple sequential API calls
+  maxDuration: 55, // 55 seconds, to stay within hobby plan limits (60s)
 };
 
 // Helper function to make API calls and handle errors
-async function triggerPipelineStep(step: 'data' | 'predictions', date: string, pythonApiUrl: string) {
-  const url = `${pythonApiUrl}/${step}/${date}`;
-  const method = step === 'data' ? 'POST' : 'GET';
+async function triggerPipelineStep(step: 'data' | 'predictions' | 'update', date: string, pythonApiUrl: string) {
+  const url = step === 'update' ? `${pythonApiUrl}/results/update` : `${pythonApiUrl}/${step}/${date}`;
+  const method = (step === 'data' || step === 'update') ? 'POST' : 'GET';
   
   console.log(`[CRON] Triggering ${step} for ${date} at: ${url}`);
   
@@ -70,10 +70,26 @@ export default async function handler(
     };
 
     // --- Execute Pipeline Sequentially ---
-    results.today.data = await triggerPipelineStep('data', todayStr, pythonApiUrl);
-    results.tomorrow.data = await triggerPipelineStep('data', tomorrowStr, pythonApiUrl);
-    results.today.predictions = await triggerPipelineStep('predictions', todayStr, pythonApiUrl);
-    results.tomorrow.predictions = await triggerPipelineStep('predictions', tomorrowStr, pythonApiUrl);
+    // We run data collection in parallel to speed things up
+    const dataPromises = [
+      triggerPipelineStep('data', todayStr, pythonApiUrl),
+      triggerPipelineStep('data', tomorrowStr, pythonApiUrl)
+    ];
+    const [todayData, tomorrowData] = await Promise.all(dataPromises);
+    results.today.data = todayData;
+    results.tomorrow.data = tomorrowData;
+    
+    // Then run predictions in parallel
+    const predictionPromises = [
+      triggerPipelineStep('predictions', todayStr, pythonApiUrl),
+      triggerPipelineStep('predictions', tomorrowStr, pythonApiUrl)
+    ];
+    const [todayPredictions, tomorrowPredictions] = await Promise.all(predictionPromises);
+    results.today.predictions = todayPredictions;
+    results.tomorrow.predictions = tomorrowPredictions;
+
+    // Finally, trigger the results update check
+    await triggerPipelineStep('update', 'N/A', pythonApiUrl);
 
     res.status(200).json({
       message: 'Full data and prediction pipeline for today and tomorrow triggered successfully.',

@@ -2,9 +2,10 @@ import os
 import sys
 import requests
 from datetime import datetime
-from typing import Dict
+from typing import Dict, Any, Optional
 import logging
 from pathlib import Path
+import time
 
 # Add the project root to the Python path
 project_root = str(Path(__file__).resolve().parent.parent.parent.parent)
@@ -80,35 +81,51 @@ class GameScraper:
         
         logger.info("GameScraper initialized successfully")
 
-    def _make_api_request(self, endpoint: str, params: Dict = None) -> Dict:
-        """Make API request with rate limit handling."""
+    def _make_api_request(self, endpoint: str, params: Optional[Dict[str, Any]] = None, max_retries: int = 4) -> Dict:
+        """Make API request with robust error handling and key rotation."""
         url = f"{self.base_url}/{endpoint}"
+        if params is None:
+            params = {}
         logger.info(f"Making API request to {url}")
         if params:
             logger.debug(f"Params: {params}")
         
-        try:
-            # Get active API key and headers from API manager
-            _, headers = api_manager.get_active_api_key()
-            
-            response = requests.get(url, headers=headers, params=params)
-            
-            if response.status_code == 429:  # Rate limit exceeded
-                logger.warning("Rate limit exceeded, rotating API key...")
-                api_manager.handle_rate_limit(headers["x-rapidapi-key"])
-                # Retry with new key
-                _, new_headers = api_manager.get_active_api_key()
-                response = requests.get(url, headers=new_headers, params=params)
-            
-            response.raise_for_status()
-            return response.json()
-            
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP Error: {str(e)}")
-            return {"status": "failed", "message": str(e)}
-        except Exception as e:
-            logger.error(f"Error making API request: {str(e)}")
-            return {"status": "failed", "message": str(e)}
+        for attempt in range(max_retries):
+            try:
+                # Get active API key and headers from API manager
+                current_key, headers = api_manager.get_active_api_key()
+                
+                response = requests.get(url, headers=headers, params=params, timeout=15)
+                
+                # Handle specific HTTP status codes
+                if response.status_code == 429:  # Rate limit
+                    logger.warning(f"Rate limit hit on key ...{current_key[-4:]}. Rotating. Attempt {attempt + 1}/{max_retries}.")
+                    api_manager.handle_rate_limit(current_key)
+                    continue
+                
+                if response.status_code == 403: # Forbidden
+                    logger.error(f"Forbidden (403) on key ...{current_key[-4:]}. Rotating. Attempt {attempt + 1}/{max_retries}.")
+                    api_manager.handle_fatal_error(current_key)
+                    continue
+
+                response.raise_for_status()
+                return response.json()
+                
+            except requests.exceptions.HTTPError as e:
+                logger.error(f"HTTP Error on attempt {attempt + 1}/{max_retries}: {str(e)}")
+                if e.response.status_code >= 500:
+                    time.sleep(1)
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Request failed on attempt {attempt + 1}/{max_retries}: {e}", exc_info=True)
+                time.sleep(1)
+            except Exception as e:
+                logger.error(f"Unexpected error on attempt {attempt + 1}/{max_retries}: {str(e)}", exc_info=True)
+                if 'current_key' in locals():
+                    api_manager.handle_fatal_error(current_key)
+                time.sleep(1)
+
+        logger.critical(f"API request to {url} failed after {max_retries} retries.")
+        return {"status": "failed", "message": f"API request failed after {max_retries} retries."}
 
     def get_active_leagues_for_date(self, date: datetime) -> Dict:
         """Get the active leagues for a specific date."""

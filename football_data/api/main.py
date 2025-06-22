@@ -2,7 +2,7 @@ import sys
 from pathlib import Path as PathLib
 import logging
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, Path
+from fastapi import FastAPI, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 
@@ -15,6 +15,7 @@ if project_root not in sys.path:
 from football_data.api.pipeline_orchestrator import run_full_pipeline
 from football_data.api.analysis_generator import FixtureAnalysisGenerator
 from football_data.get_data.api_football.db_mongo import db_manager
+from football_data.endpoints.results_updater import ResultsUpdater
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -111,9 +112,46 @@ async def root():
         "endpoints": {
             "collect_data": "POST /data/{date} - Collect and save games data for a specific date",
             "analyze_predictions": "GET /predictions/{date} - Get predictions for all games on a specific date",
-            "get_fixture_analysis": "GET /predictions/fixture/{fixture_id} - Get prediction analysis for a specific fixture"
+            "get_fixture_analysis": "GET /predictions/fixture/{fixture_id} - Get prediction analysis for a specific fixture",
+            "update_results": "POST /results/update - Check for and update finished game results"
         }
     }
+
+@app.post("/results/update", tags=["Data Processing"])
+async def update_finished_games_results(fixture_id: Optional[int] = Query(None, description="A specific fixture ID to check and update. If not provided, the queue of due fixtures will be checked.")):
+    """
+    Endpoint to check for recently finished games, fetch their final results,
+    and update the database. This is intended to be called by a scheduled job.
+    It can also be used to force an update for a single fixture.
+    """
+    try:
+        updater = ResultsUpdater()
+        
+        if fixture_id:
+            # If a specific fixture_id is provided, run the update only for that one.
+            # This is useful for testing or manual triggers.
+            if not updater.fixture_fetcher.api_manager.is_initialized():
+                 updater.fixture_fetcher.api_manager.initialize()
+            was_updated = await updater._update_and_process_fixture(fixture_id)
+            result = {
+                "fixture_id": fixture_id,
+                "status": "success",
+                "result_updated": was_updated
+            }
+            message = f"Update process completed for single fixture: {fixture_id}."
+        else:
+            # Otherwise, run the normal queue check.
+            result = await updater.run_update()
+            message = "Results update process completed for due fixtures in queue."
+
+        return {
+            "status": "success",
+            "message": message,
+            "details": result
+        }
+    except Exception as e:
+        logger.error(f"Error during results update: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Results update failed: {str(e)}")
 
 @app.post("/data/{date}", tags=["Data Collection"])
 async def collect_games_data(
@@ -143,6 +181,14 @@ async def collect_games_data(
         # Get count of collected matches using the global db_manager
         fixture_ids = db_manager.get_match_fixture_ids_for_date(date)
         
+        # Schedule result checks for the collected fixtures
+        if fixture_ids:
+            fixtures_for_scheduling = db_manager.get_match_details_for_scheduling(fixture_ids)
+            if fixtures_for_scheduling:
+                db_manager.schedule_result_checks(fixtures_for_scheduling)
+            else:
+                logger.warning(f"Could not retrieve details for scheduling for date {date}, skipping result check scheduling.")
+
         return {
             "status": "success",
             "date": date,

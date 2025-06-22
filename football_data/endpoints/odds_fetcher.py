@@ -7,6 +7,7 @@ from typing import Dict, List, Tuple, Any
 import asyncio
 import aiohttp
 import logging
+import httpx
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -111,52 +112,63 @@ class OddsFetcher:
             logger.error(f"Error getting fixtures from MongoDB: {str(e)}")
             return []
 
-    async def _make_api_request(self, endpoint: str, params: Dict, retry_count: int = 3) -> Dict:
-        """Make API request with rate limit handling and retries."""
+    async def _backoff_and_retry(self, endpoint: str, params: Dict, retry_count: int) -> Dict:
+        """
+        Implements a backoff strategy for retrying the API request.
+        """
+        wait_time = 2 ** retry_count
+        logger.info(f"Retrying in {wait_time}s...")
+        await asyncio.sleep(wait_time)
+        return await self._make_api_request(endpoint, params, retry_count + 1)
+
+    async def _make_api_request(self, endpoint: str, params: Dict, retry_count: int = 0) -> Dict:
+        """Make API request with rate limit handling."""
+        max_retries = 4
+        if retry_count >= max_retries:
+            logger.error(f"API request to {endpoint} failed after {max_retries} retries.")
+            return {"status": "failed", "message": f"Failed after {max_retries} retries"}
+
         await self.rate_limiter.wait()
-        url = f"{self.api_base_url}/{endpoint}"
+        current_key, headers = self.api_manager.get_active_api_key()
         
-        logger.info(f"Making API request to {url}")
-        logger.debug(f"Params: {params}")
-        
-        for attempt in range(retry_count):
-            try:
-                # Get active API key and headers from API manager
-                _, headers = self.api_manager.get_active_api_key()
-                
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(url, headers=headers, params=params) as response:
-                        if response.status == 429:  # Rate limit hit
-                            logger.warning("Rate limit hit, rotating API key...")
-                            self.api_manager.handle_rate_limit(headers["x-rapidapi-key"])
-                            # Retry with new key
-                            _, new_headers = self.api_manager.get_active_api_key()
-                            async with session.get(url, headers=new_headers, params=params) as retry_response:
-                                if retry_response.status == 200:
-                                    return await retry_response.json()
-                        
-                        elif response.status == 200:
-                            return await response.json()
-                        
-                        response.raise_for_status()
-                
-            except aiohttp.ClientError as e:
-                logger.error(f"API request error (attempt {attempt + 1}/{retry_count}): {str(e)}")
-                if attempt < retry_count - 1:
-                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
-                    continue
-                
-            except Exception as e:
-                logger.error(f"Unexpected error (attempt {attempt + 1}/{retry_count}): {str(e)}")
-                if attempt < retry_count - 1:
-                    await asyncio.sleep(2 ** attempt)
-                    continue
-                
-        return {"errors": ["All retry attempts failed"]}
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{self.api_base_url}/{endpoint}",
+                    headers=headers,
+                    params=params,
+                    timeout=20.0
+                )
+            
+            if response.status_code == 429:
+                logger.warning(f"Rate limit hit for key ...{current_key[-4:]}. Rotating.")
+                self.api_manager.handle_rate_limit(current_key)
+                return await self._backoff_and_retry(endpoint, params, retry_count)
+
+            if response.status_code == 403:
+                logger.error(f"Forbidden (403) on key ...{current_key[-4:]}. Rotating.")
+                self.api_manager.handle_fatal_error(current_key)
+                return await self._backoff_and_retry(endpoint, params, retry_count)
+
+            response.raise_for_status()
+            return response.json()
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP Error: {e.response.status_code} for URL {e.request.url}")
+            if e.response.status_code >= 500: # Server error, retry
+                return await self._backoff_and_retry(endpoint, params, retry_count)
+            # For other client errors, we might not want to retry, but let the logic proceed
+            return {"status": "failed", "message": str(e)}
+        except httpx.RequestError as e:
+            logger.error(f"Request failed: {e.__class__.__name__}")
+            return await self._backoff_and_retry(endpoint, params, retry_count)
+        except Exception as e:
+            logger.error(f"Unexpected error making API request: {str(e)}", exc_info=True)
+            return {"status": "failed", "message": str(e)}
 
     async def fetch_odds(self, fixture_id: str) -> Dict:
         """Fetch odds for a specific fixture."""
-        logger.info(f"Fetching odds for fixture {fixture_id}...")
+        logger.info(f"Fetching odds for fixture_id: {fixture_id}")
         
         # Make sure fixture_id is a string
         params = {"fixture": str(fixture_id)}

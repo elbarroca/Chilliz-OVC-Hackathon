@@ -332,6 +332,23 @@ class APIManager:
             logger.info(f"Waiting {wait_time} seconds due to rate limit")
             time.sleep(wait_time)
 
+    def handle_fatal_error(self, api_key: str):
+        """
+        Handles fatal API errors like 403 Forbidden by marking the key as unusable
+        for the current rotation cycle.
+        """
+        logger.error(f"FATAL error (e.g., 403 Forbidden) with key ...{api_key[-4:]}. This key may be disabled or unsubscribed.")
+        
+        # Mark the key as exhausted for this period to force rotation.
+        # This is a safe way to disable a key for the day without removing it.
+        if api_key in self.limited_keys:
+            self._request_counts[api_key] = self.DAILY_LIMIT
+        
+        # Also, increment consecutive failures to penalize it heavily in selection logic.
+        self._consecutive_failures[api_key] = self._consecutive_failures.get(api_key, 0) + 5
+        self._save_state()
+        logger.info(f"Key ...{api_key[-4:]} marked as unusable for this cycle. Forcing rotation.")
+
     def get_request_counts(self) -> Dict[str, int]:
         """Get current request counts for all APIs."""
         if not self.api_keys:
