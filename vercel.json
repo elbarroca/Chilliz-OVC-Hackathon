@@ -1,0 +1,32 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "next.config.js",
+      "use": "@vercel/next",
+      "config": {
+        "maxLambdaSize": "15mb"
+      }
+    },
+    {
+      "src": "football_data/api/main.py",
+      "use": "@vercel/python",
+      "config": {
+        "maxLambdaSize": "15mb",
+        "runtime": "python3.11"
+      }
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/py-api/:path*",
+      "destination": "/football_data/api/main.py"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/daily-update",
+      "schedule": "0 5 * * *"
+    }
+  ]
+} 

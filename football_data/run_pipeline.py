@@ -6,48 +6,48 @@ import sys
 from pathlib import Path
 import json
 from typing import List, Dict
-from football_data.score_data.extract_daily_games import DailyDataPreparer
+
+# Add project root to system path to allow absolute imports from project root
+# This must come before any local imports.
+project_root = str(Path(__file__).resolve().parent.parent)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+    print(f"Added to Python path: {project_root}")
 
 # Load environment variables from .env file
+# This must also come before any local imports that might need them.
 try:
     from dotenv import load_dotenv
     # Load .env from parent directory (project root)
     env_path = Path(__file__).resolve().parent.parent / '.env'
-    load_dotenv(env_path)
-    print("✓ Environment variables loaded from .env file")
-except ImportError:
-    print("⚠ python-dotenv not installed, trying to load .env manually")
-    # Manual .env loading
-    env_path = Path(__file__).resolve().parent.parent / '.env'
     if env_path.exists():
-        with open(env_path) as f:
-            for line in f:
-                if line.strip() and not line.startswith('#'):
-                    key, value = line.strip().split('=', 1)
-                    os.environ[key] = value.strip('"\'')
-        print("✓ Environment variables loaded manually from .env file")
+        load_dotenv(env_path)
+        print("✓ Environment variables loaded from .env file")
     else:
-        print("⚠ .env file not found")
+        print("⚠ .env file not found, relying on system environment variables.")
+except ImportError:
+    print("⚠ python-dotenv not installed, cannot load .env file.")
 
+
+# --- Initialize API Manager Singleton ---
+# This must be done after loading environment variables and before any other
+# local modules that might use it are imported.
+from football_data.endpoints.api_manager import api_manager
+api_manager.initialize()
+# ----------------------------------------
+
+
+from football_data.score_data.extract_daily_games import DailyDataPreparer
+
+# Load environment variables from .env file - MOVED TO TOP
 print("=== PIPELINE STARTING ===")
 print(f"Python version: {sys.version}")
 print(f"Current working directory: {os.getcwd()}")
 
-# Set MONGO_URI if it's not set but MONGO_URI is
-if not os.getenv('MONGO_URI') and os.getenv('MONGO_URI'):
-    os.environ['MONGO_URI'] = os.getenv('MONGO_URI')
-    print("✓ Set MONGO_URI from MONGO_URI")
-
 # Check environment variables
 print(f"API_FOOTBALL_KEY: {'SET' if os.getenv('API_FOOTBALL_KEY') else 'NOT SET'}")
 print(f"MONGO_URI: {'SET' if os.getenv('MONGO_URI') else 'NOT SET'}")
-print(f"MONGO_URI: {'SET' if os.getenv('MONGO_URI') else 'NOT SET'}")
 print(f"DB_NAME: {os.getenv('DB_NAME', 'NOT SET')}")
-
-# Add project root to system path
-project_root = str(Path(__file__).resolve().parent.parent)
-sys.path.insert(0, project_root)
-print(f"Added to Python path: {project_root}")
 
 try:
     from football_data.endpoints.game_scraper import GameScraper
@@ -74,13 +74,6 @@ try:
     print("✓ process_fixture_json imported successfully")
 except Exception as e:
     print(f"✗ Failed to import process_fixture_json: {e}")
-    sys.exit(1)
-
-try:
-    from football_data.score_data.paper_generator import generate_papers
-    print("✓ generate_papers imported successfully")
-except Exception as e:
-    print(f"✗ Failed to import generate_papers: {e}")
     sys.exit(1)
 
 try:
@@ -362,7 +355,7 @@ async def main():
         
         # This process finds all fixtures for the date, processes them, and saves individual files
         # It returns a summary of what it did.
-        extraction_summary = extractor.extract_games(target_date)
+        extraction_summary = await extractor.extract_games(target_date)
         
         # We need to find the files it created for the fixtures we just processed.
         if "games_processed_summary" in extraction_summary:
@@ -531,8 +524,10 @@ def transform_and_load_for_frontend(prediction_files: list):
             logger.error("Failed to load matches for the frontend.")
 
 
-if __name__ == "__main__":
-    # Ensure event loop is handled correctly for cross-platform compatibility
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    asyncio.run(main()) 
+print("--> Script definitions are complete. About to run main execution block.")
+
+# Directly run the main async function.
+# This ensures that when the script is executed, it waits for the async pipeline to complete.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+asyncio.run(main()) 

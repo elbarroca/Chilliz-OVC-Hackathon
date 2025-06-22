@@ -89,7 +89,6 @@ class APIManager:
             # Use hardcoded backup keys if no env keys found
             if not env_keys_filtered:
                  all_keys = [
-                     os.getenv("RAPID_API_KEY_1", "312836304amsh55d4ccaf5ca371dp13a3f6jsn5d6b72f5d91a"),  # Primary
                      os.getenv("RAPID_API_KEY_2", "efd8a9c220msh948a00c77b1dfa9p189680jsn5a01311680c0"),  # Secondary
                      os.getenv("RAPID_API_KEY_3", "59eafe2452msh5cac1e68bf1bd35p105bb6jsn45a1a524807c"),  # Third
                      os.getenv("RAPID_API_KEY_4", UNLIMITED_API_KEY),  # Fourth

@@ -1,5 +1,4 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import clientPromise from '@/lib/mongo';
 
 /**
  * API endpoint to trigger daily data collection and prediction analysis.
@@ -8,81 +7,84 @@ import clientPromise from '@/lib/mongo';
  * In a production environment, this endpoint should be secured with a secret key
  * to prevent unauthorized access.
  */
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-    // For Vercel Cron, check the authorization header
-    if (process.env.CRON_SECRET && req.headers['authorization'] !== `Bearer ${process.env.CRON_SECRET}`) {
-        return res.status(401).json({ message: 'Unauthorized' });
+export const config = {
+  maxDuration: 540, // 9 minutes, to accommodate multiple sequential API calls
+};
+
+// Helper function to make API calls and handle errors
+async function triggerPipelineStep(step: 'data' | 'predictions', date: string, pythonApiUrl: string) {
+  const url = `${pythonApiUrl}/${step}/${date}`;
+  const method = step === 'data' ? 'POST' : 'GET';
+  
+  console.log(`[CRON] Triggering ${step} for ${date} at: ${url}`);
+  
+  const response = await fetch(url, { method });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`[CRON] Step '${step}' for ${date} failed: ${response.status}`, errorText);
+    // For 404 on prediction, it's not a critical failure, just means no data.
+    if (step === 'predictions' && response.status === 404) {
+      console.warn(`[CRON] No data found to run predictions for ${date}. Continuing...`);
+      return { status: 'skipped', reason: 'No data found' };
     }
-    
-    if (req.method !== 'POST') {
-        res.setHeader('Allow', ['POST']);
-        return res.status(405).json({ message: 'Method Not Allowed' });
-    }
+    throw new Error(`${step} API for ${date} returned an error: ${errorText}`);
+  }
 
-    try {
-        const today = new Date().toISOString().split('T')[0];
-        const pythonApiUrl = process.env.PYTHON_API_URL || 'http://127.0.0.1:8000';
+  const responseData = await response.json();
+  console.log(`[CRON] Step '${step}' for ${date} successful.`);
+  return responseData;
+}
 
-        console.log(`[CRON] Starting daily update for ${today}...`);
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
+  // Vercel Cron jobs send GET requests, which we use as the trigger.
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', ['GET']);
+    return res.status(405).end(`Method ${req.method} Not Allowed`);
+  }
 
-        // Step 1: Trigger data collection in the Python API for today's matches.
-        console.log(`[CRON] Triggering data collection at ${pythonApiUrl}/data/${today}`);
-        const collectResponse = await fetch(`${pythonApiUrl}/data/${today}`, { method: 'POST' });
-        if (!collectResponse.ok) {
-            const errorText = await collectResponse.text();
-            console.error(`[CRON] Failed to trigger data collection: ${collectResponse.status}`, errorText);
-            throw new Error(`Failed to trigger data collection: ${collectResponse.status} - ${errorText}`);
-        }
-        const collectData = await collectResponse.json();
-        console.log('[CRON] Data collection API response:', collectData);
+  // It's a good practice to protect your cron jobs.
+  const { authorization } = req.headers;
+  if (process.env.CRON_SECRET && authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
 
-        // Step 2: Fetch the generated predictions and analysis.
-        console.log(`[CRON] Fetching predictions from ${pythonApiUrl}/predictions/${today}`);
-        const predictionsResponse = await fetch(`${pythonApiUrl}/predictions/${today}`);
-        if (!predictionsResponse.ok) {
-            const errorText = await predictionsResponse.text();
-            console.error(`[CRON] Failed to fetch predictions: ${predictionsResponse.status}`, errorText);
-            throw new Error(`Failed to fetch predictions: ${predictionsResponse.status} - ${errorText}`);
-        }
-        const predictionsData = await predictionsResponse.json();
+  const pythonApiUrl = process.env.PYTHON_API_URL || 'http://127.0.0.1:8000';
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
 
-        if (!predictionsData.matches || predictionsData.matches.length === 0) {
-            console.log('[CRON] No matches found in predictions response. Nothing to update.');
-            return res.status(200).json({ message: 'No matches found to update.' });
-        }
-        console.log(`[CRON] Received ${predictionsData.matches.length} matches to process.`);
+  const todayStr = today.toISOString().split('T')[0];
+  const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
-        // Step 3: Save the analysis data to our MongoDB `match_analysis` collection.
-        const client = await clientPromise;
-        const db = client.db('Alpha');
-        const collection = db.collection('match_analysis');
+  try {
+    const results: {
+      today: { [key: string]: any };
+      tomorrow: { [key: string]: any };
+    } = {
+      today: {},
+      tomorrow: {}
+    };
 
-        // We use bulkWrite with upsert to efficiently insert new matches or update existing ones.
-        const operations = predictionsData.matches.map((match: any) => ({
-            updateOne: {
-                filter: { 'fixture_info.fixture_id': match.fixture_info.fixture_id },
-                update: { $set: match },
-                upsert: true,
-            },
-        }));
-        
-        console.log(`[CRON] Performing ${operations.length} bulk write operations...`);
-        const result = await collection.bulkWrite(operations);
-        console.log('[CRON] Bulk write operation successful.', result);
+    // --- Execute Pipeline Sequentially ---
+    results.today.data = await triggerPipelineStep('data', todayStr, pythonApiUrl);
+    results.tomorrow.data = await triggerPipelineStep('data', tomorrowStr, pythonApiUrl);
+    results.today.predictions = await triggerPipelineStep('predictions', todayStr, pythonApiUrl);
+    results.tomorrow.predictions = await triggerPipelineStep('predictions', tomorrowStr, pythonApiUrl);
 
-        res.status(200).json({
-            message: 'Successfully updated match analysis data.',
-            date: today,
-            ...result,
-        });
+    res.status(200).json({
+      message: 'Full data and prediction pipeline for today and tomorrow triggered successfully.',
+      results
+    });
 
-    } catch (error) {
-        console.error('[CRON] Daily update job failed:', error);
-        const err = error as Error;
-        res.status(500).json({ 
-            message: 'Cron job failed', 
-            error: err.message,
-            stack: err.stack 
-        });
-    }
+  } catch (error: any) {
+    console.error('[CRON] The daily update job failed during its execution.', error);
+    res.status(500).json({
+      message: 'The cron job failed to execute the full pipeline.',
+      error: error.message,
+    });
+  }
 } 

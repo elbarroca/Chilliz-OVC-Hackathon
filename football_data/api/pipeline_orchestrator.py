@@ -76,7 +76,7 @@ def process_fixture_from_db_data(match_processor_data: Dict[str, Any]) -> Option
 
         if lambdas_orig[0] is not None and lambdas_orig[1] is not None:
             mc_scenario_results_dict, mc_score_results_dict = run_monte_carlo_simulation(
-                lambdas_orig[0], lambdas_orig[1], max_score_plot=MC_MAX_SCORE_PLOT
+                lambdas_orig[0], lambdas_orig[1]
             )
             if mc_scenario_results_dict is not None:
                 results["mc_probs"] = mc_scenario_results_dict
@@ -312,73 +312,63 @@ async def run_prediction_generation(target_date: datetime):
 
 async def run_prediction_generation_and_save(target_date: datetime):
     """
-    Orchestrates the prediction generation part of the pipeline for a given date
-    and ensures all results are saved to the predictions collection.
+    Orchestrates the prediction generation part of the pipeline, saves the results,
+    and returns a summary.
     """
-    logger.info(f"--- Running Prediction Generation and Save for {target_date.strftime('%Y-%m-%d')} ---")
-    
+    logger.info(f"--- Running Prediction Generation for {target_date.strftime('%Y-%m-%d')} ---")
     date_str = target_date.strftime('%Y-%m-%d')
     
-    # Get all fixture IDs for the date
-    fixture_ids = db_manager.get_match_fixture_ids_for_date(date_str)
+    # 1. Get all fixture IDs for the date that have been processed.
+    fixture_ids = db_manager.get_processed_fixture_ids_for_date(date_str)
     
     if not fixture_ids:
-        logger.warning("No fixture IDs found for prediction generation.")
-        return {"status": "warning", "message": "No fixture IDs were available for prediction."}
+        logger.warning(f"No processed fixtures found for {date_str} to generate predictions.")
+        return {"status": "warning", "message": "No processed fixtures found."}
 
-    saved_predictions = 0
-    failed_predictions = 0
-    prediction_results = []
+    logger.info(f"Found {len(fixture_ids)} processed fixtures to generate predictions for.")
     
-    for fixture_id in fixture_ids:
-        try:
-            logger.info(f"Processing prediction for fixture {fixture_id}")
-            
-            # Get match processor data for this fixture
-            match_processor_data = db_manager.get_match_processor_data(str(fixture_id))
-            if not match_processor_data:
-                logger.warning(f"No match processor data found for fixture {fixture_id}, skipping.")
-                failed_predictions += 1
-                continue
-            
-            # Process prediction directly from database data
-            prediction_data = process_fixture_from_db_data(match_processor_data)
-            if prediction_data:
-                # Add metadata for saving
-                prediction_data['date_str'] = date_str
-                prediction_data['generated_at_utc'] = datetime.utcnow().isoformat()
-                
-                # Save prediction to database
-                success = db_manager.save_prediction_results(prediction_data)
-                if success:
-                    saved_predictions += 1
-                    prediction_results.append({
-                        "fixture_id": fixture_id,
-                        "home_team": prediction_data.get("home_team"),
-                        "away_team": prediction_data.get("away_team"),
-                        "prediction_types": [k for k in prediction_data.keys() if k.endswith('_probs') and prediction_data[k] is not None]
-                    })
-                    logger.info(f"Saved new prediction for fixture {fixture_id}")
-                else:
-                    failed_predictions += 1
-                    logger.error(f"Failed to save prediction for fixture {fixture_id}")
-            else:
-                failed_predictions += 1
-                logger.warning(f"Failed to generate prediction for fixture {fixture_id}")
-                    
-        except Exception as e:
-            failed_predictions += 1
-            logger.error(f"Error predicting for fixture {fixture_id}: {e}", exc_info=True)
+    prediction_results = []
+    cached_predictions = 0
 
-    logger.info(f"Saved {saved_predictions} predictions. {failed_predictions} failed.")
-    logger.info("--- Prediction Generation and Save Complete ---")
-    return {
-        "status": "success", 
-        "saved_predictions": saved_predictions,
-        "failed_predictions": failed_predictions,
-        "total_fixtures": len(fixture_ids),
-        "prediction_results": prediction_results
+    for fixture_id in fixture_ids:
+        # 2. Check if predictions already exist for this fixture (caching logic)
+        if db_manager.check_prediction_exists(str(fixture_id)):
+            logger.debug(f"Prediction for fixture {fixture_id} already exists. Skipping.")
+            cached_predictions += 1
+            continue
+
+        match_processor_data = db_manager.get_match_processor_data(str(fixture_id))
+        if not match_processor_data:
+            logger.warning(f"Could not retrieve match processor data for {fixture_id}. Skipping prediction.")
+            continue
+            
+        # 3. Process the fixture data to generate predictions
+        prediction_output = process_fixture_from_db_data(match_processor_data)
+        
+        if prediction_output:
+            # 4. Save individual prediction results to the database
+            db_manager.save_prediction_results(prediction_output)
+            prediction_results.append(prediction_output)
+            logger.info(f"Successfully generated and saved prediction for fixture {fixture_id}")
+        else:
+            logger.error(f"Failed to generate prediction for fixture {fixture_id}")
+            
+    # 5. Transform and load data for the frontend
+    # This step might need to be adjusted based on the final format.
+    # It currently expects file paths, but we have data in memory.
+    # For now, we adapt it to save the structured data.
+    if prediction_results:
+        logger.info("Transforming prediction data for frontend...")
+        transform_and_load_for_frontend_from_data(prediction_results)
+
+    summary = {
+        "status": "success",
+        "new_predictions_generated": len(prediction_results),
+        "cached_predictions": cached_predictions,
+        "total_fixtures_for_date": len(fixture_ids)
     }
+    logger.info(f"--- Prediction Generation Complete --- Summary: {summary}")
+    return summary
 
 
 async def backfill_team_history(
@@ -480,6 +470,7 @@ async def run_match_processing_for_fixture(
         api_data['away_team_history'] = away_history
         
         api_data['fixture_id'] = fixture_id
+        api_data['match_date_str'] = match_date.strftime('%Y-%m-%d')
         db_manager.save_match_processor_data(api_data)
         logger.info(f"Successfully processed and saved all data for fixture {fixture_id} to 'match_processor'.")
         return fixture_id
@@ -547,140 +538,91 @@ async def run_edge_analysis(date: datetime):
         } 
 
 async def run_full_pipeline(date: datetime):
-    """Main orchestration function to run the entire pipeline."""
+    """
+    Runs the full data pipeline: fetches new data, then generates predictions.
+    """
+    logger.info(f"--- Starting Full Pipeline for {date.strftime('%Y-%m-%d')} ---")
     
-    # --- 1. Scrape Games ---
-    logger.info("--- Step 1: Scraping upcoming games ---")
-    scraper = GameScraper()
-    all_new_fixture_ids = set()
-
-    # Scrape for the target date and the next day
-    for i in range(2):
-        target_date = date + timedelta(days=i)
-        date_str = target_date.strftime('%Y-%m-%d')
-        logger.info(f"Scraping games for {date_str}")
-        
-        scraper.get_games(target_date)
-        
-        new_ids = db_manager.get_match_fixture_ids_for_date(date_str)
-        if new_ids:
-            all_new_fixture_ids.update(new_ids)
-
-    if not all_new_fixture_ids:
-        logger.info("No new fixtures found to process.")
-        return {"status": "complete", "message": "No new fixtures found."}
-
-    logger.info(f"Found {len(all_new_fixture_ids)} new fixtures to process: {all_new_fixture_ids}")
-
-    # --- 2. Process Each Match ---
-    logger.info("\n--- Step 2: Fetching detailed data for each new fixture ---")
+    # Step 1: Fetch all required data for the day's matches.
+    # This function now includes caching logic.
+    fetch_summary = await run_data_fetching(date)
+    logger.info(f"Data fetching summary: {fetch_summary}")
     
-    match_processor = MatchProcessor()
-    fixture_details_fetcher = FixtureDetailsFetcher(db_manager_instance=db_manager)
-    team_fixtures_fetcher = TeamFixturesFetcher()
-    odds_fetcher = OddsFetcher()
-
-    priority_fixtures = []
-    for fixture_id in all_new_fixture_ids:
-        match_data_from_db = db_manager.get_match_data(str(fixture_id))
-        if match_data_from_db:
-            league_id = match_data_from_db.get('league_id', '')
-            is_priority = any(info["mongodb_id"] == league_id for info in LEAGUE_ID_MAPPING.values())
-            if is_priority:
-                priority_fixtures.append(match_data_from_db)
+    # Step 2: Generate predictions for all processed matches for the day.
+    # This function also includes caching logic.
+    prediction_summary = await run_prediction_generation_and_save(date)
+    logger.info(f"Prediction generation summary: {prediction_summary}")
     
-    logger.info(f"Processing {len(priority_fixtures)} priority fixtures.")
+    logger.info(f"--- Full Pipeline Finished for {date.strftime('%Y-%m-%d')} ---")
     
-    tasks = [
-        run_match_processing_for_fixture(
-            match_processor, fixture_details_fetcher, team_fixtures_fetcher, match_data
-        ) for match_data in priority_fixtures
-    ]
-
-    results = await asyncio.gather(*tasks)
-    processed_fixture_ids = [fid for fid in results if fid is not None]
-    
-    logger.info(f"Successfully processed {len(processed_fixture_ids)} fixtures.")
-
-    if not processed_fixture_ids:
-        logger.info("No fixtures were successfully processed. Exiting.")
-        return {"status": "complete", "message": "No fixtures processed."}
-
-    # --- 2.5. Fetch Odds ---
-    logger.info("\n--- Step 2.5: Fetching odds for processed fixtures ---")
-    try:
-        await odds_fetcher.process_fixtures_odds(fixture_ids=processed_fixture_ids)
-    except Exception as e:
-        logger.error(f"An error occurred during odds fetching: {e}", exc_info=True)
-
-    # --- 3. Create Unified Data Files ---
-    logger.info("\n--- Step 3: Creating unified data files for processed fixtures ---")
-    extractor = DailyDataPreparer()
-    unified_files_to_predict = []
-    
-    for i in range(2):
-        target_date = date + timedelta(days=i)
-        date_str = target_date.strftime('%Y-%m-%d')
-        extraction_summary = extractor.extract_fixture_ids_for_date(date_str)
-        
-        if "games_processed_summary" in extraction_summary:
-            for summary in extraction_summary["games_processed_summary"]:
-                fixture_id = summary.get("fixture_id")
-                if fixture_id in processed_fixture_ids:
-                    # Construct the expected filename to find the file
-                    # This logic must match the save logic in `save_individual_game_file`
-                    match_data = db_manager.get_match_data(str(fixture_id))
-                    if match_data:
-                        home_name = extractor._sanitize_filename(match_data.get('home_team',{}).get('name', ''))
-                        away_name = extractor._sanitize_filename(match_data.get('away_team',{}).get('name', ''))
-                        fname = f"{date_str}_{home_name}_vs_{away_name}_{fixture_id}.json"
-                        fpath = os.path.join(extractor.OUTPUT_DIR, fname)
-                        if os.path.exists(fpath):
-                            unified_files_to_predict.append(fpath)
-                        else:
-                            logger.warning(f"Could not find expected unified file: {fpath}")
-    
-    logger.info(f"Found {len(unified_files_to_predict)} unified files to run predictions on.")
-
-    if not unified_files_to_predict:
-        return {"status": "complete", "message": "No unified files created for prediction."}
-
-    # --- 4. Run Predictions ---
-    logger.info("\n--- Step 4: Running predictions ---")
-    prediction_output_files = []
-    for file_path in unified_files_to_predict:
-        try:
-            output_file = process_fixture_json(file_path)
-            if output_file:
-                prediction_output_files.append(output_file)
-                with open(output_file, 'r') as f:
-                    prediction_data = json.load(f)
-                db_manager.save_prediction_results(prediction_data)
-        except Exception as e:
-            logger.error(f"Error predicting for {file_path}: {e}", exc_info=True)
-
-    if not prediction_output_files:
-        return {"status": "complete", "message": "No predictions generated."}
-
-    # --- 5. Generate Betting Papers ---
-    logger.info("\n--- Step 5: Generating betting papers ---")
-    paper_params = {
-        "input_directory": "data/output/predictions", "output_file": "data/output/betting_papers.json",
-        "min_edge": 0.05, "min_probability": 0.5, "top_n_per_game": 3, "paper_sizes": [2, 3, 5],
-        "max_papers_per_size": 10, "strategy": "greedy_prob_edge"
+    return {
+        "pipeline_status": "completed",
+        "date": date.strftime('%Y-%m-%d'),
+        "data_fetching": fetch_summary,
+        "prediction_generation": prediction_summary
     }
-    try:
-        papers_result = generate_papers(paper_params)
-        if papers_result:
-            db_manager.save_betting_papers(papers_result)
-    except Exception as e:
-        logger.error(f"Failed to generate betting papers: {e}", exc_info=True)
 
-    # --- 6. Transform for Frontend ---
-    logger.info("\n--- Step 6: Transforming data for frontend ---")
-    transform_and_load_for_frontend(prediction_output_files)
+def transform_and_load_for_frontend_from_data(prediction_results: list):
+    """
+    Transforms prediction outputs into the format expected by the frontend
+    and loads it into the 'matches' collection, using data directly.
+    """
+    if not prediction_results:
+        logger.warning("No prediction results to transform for frontend.")
+        return
 
-    return {"status": "success", "message": "Pipeline completed successfully.", "processed_fixtures": processed_fixture_ids}
+    logger.info(f"Transforming {len(prediction_results)} predictions for the frontend.")
+    
+    matches_to_load = []
+    for data in prediction_results:
+        try:
+            fixture_id = data.get("fixture_id")
+            if not fixture_id:
+                logger.warning(f"Skipping prediction, missing fixture_id.")
+                continue
+            
+            # We need to fetch the original match_processor_data to get all details
+            match_processor_data = db_manager.get_match_processor_data(str(fixture_id))
+            if not match_processor_data:
+                 logger.warning(f"Could not get match_processor_data for fixture {fixture_id} to transform.")
+                 continue
+
+            mc_probs = data.get("mc_probs")
+            if not mc_probs:
+                logger.warning(f"Skipping fixture {fixture_id}, missing mc_probs for alphaPredictions.")
+                continue
+
+            match_doc = {
+                "matchId": int(fixture_id),
+                "teamA": {
+                    "name": data.get("home_team", "N/A"),
+                    "slug": data.get("home_team", "n-a").lower().replace(" ", "-"),
+                    "logoUrl": safe_get(match_processor_data, ["raw_data", "home", "basic_info", "logo"], "")
+                },
+                "teamB": {
+                    "name": data.get("away_team", "N/A"),
+                    "slug": data.get("away_team", "n-a").lower().replace(" ", "-"),
+                    "logoUrl": safe_get(match_processor_data, ["raw_data", "away", "basic_info", "logo"], "")
+                },
+                "matchTime": safe_get(match_processor_data, ["fixture_data", "fixture_meta", "date_utc"]),
+                "league": safe_get(match_processor_data, ["fixture_data", "league", "name"]),
+                "status": 'UPCOMING',
+                "alphaPredictions": {
+                    "winA_prob": mc_probs.get("prob_H", 0),
+                    "draw_prob": mc_probs.get("prob_D", 0),
+                    "winB_prob": mc_probs.get("prob_A", 0),
+                }
+            }
+            # Using updateOne with upsert=True to not overwrite existing fields
+            db_manager._matches_collection.update_one(
+                {"matchId": int(fixture_id)},
+                {"$set": match_doc},
+                upsert=True
+            )
+        except Exception as e:
+            logger.error(f"Error transforming prediction for fixture {fixture_id}: {e}", exc_info=True)
+
+    logger.info(f"Finished transforming and loading {len(prediction_results)} matches to the 'matches' collection.")
 
 
 def transform_and_load_for_frontend(prediction_files: list):

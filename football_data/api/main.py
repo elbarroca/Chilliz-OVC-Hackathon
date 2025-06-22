@@ -14,7 +14,7 @@ if project_root not in sys.path:
 # Local imports
 from football_data.api.pipeline_orchestrator import run_full_pipeline
 from football_data.api.analysis_generator import FixtureAnalysisGenerator
-from football_data.get_data.api_football.db_mongo import MongoDBManager
+from football_data.get_data.api_football.db_mongo import db_manager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -25,6 +25,21 @@ app = FastAPI(
     description="Simple API with 2 endpoints: collect data and analyze predictions by date.",
     version="2.0.0"
 )
+
+@app.on_event("startup")
+async def startup_event():
+    """Ensures the database manager is initialized when the app starts."""
+    logger.info("Application startup: ensuring DB manager is initialized.")
+    # The global db_manager is initialized on import, but this is a good safeguard.
+    if not db_manager.is_initialized():
+        logger.warning("DB Manager was not initialized on startup, re-initializing.")
+        db_manager.__init__()
+
+@app.on_event("shutdown")
+def shutdown_event():
+    """Closes the database connection when the app shuts down."""
+    logger.info("Application shutdown: closing DB connection.")
+    db_manager.close_connection()
 
 # --- Pydantic Models for API Schema ---
 
@@ -125,10 +140,8 @@ async def collect_games_data(
         logger.info(f"Starting data collection for {date}")
         result = await run_full_pipeline(target_date)
         
-        # Get count of collected matches
-        db_manager = MongoDBManager()
+        # Get count of collected matches using the global db_manager
         fixture_ids = db_manager.get_match_fixture_ids_for_date(date)
-        db_manager.close_connection()
         
         return {
             "status": "success",
@@ -163,12 +176,15 @@ async def analyze_predictions_for_date(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Please use YYYY-MM-DD.")
     
-    db_manager = MongoDBManager()
     try:
         logger.info(f"Starting predictions analysis for {date}")
         
         # Get all fixture IDs for the date
         fixture_ids = db_manager.get_match_fixture_ids_for_date(date)
+
+        if not fixture_ids:
+            logger.warning(f"No daily_games for {date}, checking match_processor for cached fixtures.")
+            fixture_ids = db_manager.get_processed_fixture_ids_for_date(date)
         
         if not fixture_ids:
             raise HTTPException(
@@ -245,8 +261,6 @@ async def analyze_predictions_for_date(
     except Exception as e:
         logger.error(f"Error analyzing predictions for {date}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Predictions analysis failed: {str(e)}")
-    finally:
-        db_manager.close_connection()
 
 @app.get("/predictions/fixture/{fixture_id}", tags=["Predictions Analysis"], response_model=MatchAnalysis)
 async def get_fixture_analysis(
@@ -262,7 +276,6 @@ async def get_fixture_analysis(
     Input: Fixture ID (string)
     Output: Complete analysis with predictions for the specific fixture
     """
-    db_manager = MongoDBManager()
     try:
         logger.info(f"Getting prediction analysis for fixture {fixture_id}")
         
@@ -292,8 +305,6 @@ async def get_fixture_analysis(
     except Exception as e:
         logger.error(f"Error getting analysis for fixture {fixture_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to get fixture analysis: {str(e)}")
-    finally:
-        db_manager.close_connection()
 
 if __name__ == "__main__":
     import uvicorn

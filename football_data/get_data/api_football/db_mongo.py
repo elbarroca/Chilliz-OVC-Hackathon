@@ -1138,6 +1138,30 @@ class MongoDBManager:
             logger.error(f"Error retrieving match analysis for fixture {fixture_id}: {e}", exc_info=True)
             return None
 
+    def get_processed_fixture_ids_for_date(self, date_str: str) -> List[int]:
+        """
+        Returns a list of fixture IDs for a given date that have already been
+        processed and exist in the match_processor collection.
+        """
+        assert self._match_processor_collection is not None, "match_processor_collection not initialized"
+        fixture_ids = []
+        try:
+            # Find documents where the match_date_str matches.
+            # Assumes 'match_date_str' is a field in your match_processor documents.
+            processed_fixtures = self._match_processor_collection.find(
+                {"match_date_str": date_str},
+                {"fixture_id": 1} # Only return the fixture_id
+            )
+            fixture_ids = [int(doc['fixture_id']) for doc in processed_fixtures if 'fixture_id' in doc]
+            logger.debug(f"Found {len(fixture_ids)} processed fixture IDs for {date_str}")
+        except Exception as e:
+            logger.error(f"Error fetching processed fixture IDs for {date_str}: {e}", exc_info=True)
+        return fixture_ids
+
+    def is_initialized(self) -> bool:
+        """Checks if the database manager is properly initialized."""
+        return self._initialized and self._client is not None and self._db is not None
+
 # Create a global instance for backward compatibility
 # This allows other modules to import db_manager as they expect
 db_manager = MongoDBManager()

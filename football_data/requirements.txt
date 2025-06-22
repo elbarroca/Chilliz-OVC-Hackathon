@@ -7,4 +7,5 @@ pandas
 numpy
 pymongo 
 scikit-learn
-xgboost 
+xgboost
+matplotlib 
