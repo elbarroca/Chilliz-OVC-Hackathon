@@ -91,138 +91,117 @@ export function RecommendedMatches({ onSelectBet, parlaySelections, currentMatch
   }
 
   return (
-    <Card className="bg-gradient-to-br from-gray-900/50 to-black border-gray-700">
+    <Card className="bg-gradient-to-br from-gray-900/50 to-black border-gray-800">
       <CardHeader>
         <CardTitle className="flex items-center gap-3">
           <TrendingUp className="text-blue-400" size={24} />
-          <div>
-            <div className="text-xl font-bold text-white">Recommended Matches</div>
-            <div className="text-sm text-gray-400">Add to your parlay</div>
-          </div>
+          <div className="text-xl font-bold text-white">Recommended Matches</div>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-2">
         {recommendedMatches.map(match => {
           const odds = getMockOdds(match._id);
           const alphaPick = getAlphaPick(match);
-          const matchDate = new Date(match.matchTime);
           const isInParlay = isMatchInParlay(match._id);
 
           return (
             <div
               key={match._id}
-              className={`p-4 bg-gradient-to-r from-gray-800/50 to-gray-700/50 rounded-lg border transition-all duration-200 ${
-                isInParlay ? 'border-blue-500 bg-blue-900/20' : 'border-gray-700/50 hover:border-gray-600'
+              className={`p-3 bg-gray-800/40 rounded-lg border border-gray-700/50 transition-all duration-200 ${
+                isInParlay ? 'border-blue-500/60 bg-blue-900/20' : 'hover:border-gray-600 hover:bg-gray-800/60'
               }`}
             >
-              {/* Match Header */}
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2">
-                    <Image
-                      src={teamALogoErrors[match._id] ? defaultLogo : match.teamA.logoUrl}
-                      alt={match.teamA.name}
-                      width={24}
-                      height={24}
-                      className="w-6 h-6"
-                      onError={() => handleTeamALogoError(match._id)}
-                    />
-                    <span className="font-bold text-white text-sm">{match.teamA.name}</span>
-                  </div>
+              <div className="flex items-center justify-between">
+                {/* Team Info */}
+                <div className="flex items-center gap-2 flex-1 w-1/3">
+                  <Image
+                    src={teamALogoErrors[match._id] ? defaultLogo : match.teamA.logoUrl}
+                    alt={match.teamA.name}
+                    width={20}
+                    height={20}
+                    onError={() => handleTeamALogoError(match._id)}
+                  />
+                  <span className="font-semibold text-white text-sm truncate">{match.teamA.name}</span>
                   <span className="text-gray-400 text-xs">vs</span>
-                  <div className="flex items-center gap-2">
-                    <Image
-                      src={teamBLogoErrors[match._id] ? defaultLogo : match.teamB.logoUrl}
-                      alt={match.teamB.name}
-                      width={24}
-                      height={24}
-                      className="w-6 h-6"
-                      onError={() => handleTeamBLogoError(match._id)}
-                    />
-                    <span className="font-bold text-white text-sm">{match.teamB.name}</span>
-                  </div>
+                   <Image
+                    src={teamBLogoErrors[match._id] ? defaultLogo : match.teamB.logoUrl}
+                    alt={match.teamB.name}
+                    width={20}
+                    height={20}
+                    onError={() => handleTeamBLogoError(match._id)}
+                  />
+                  <span className="font-semibold text-white text-sm truncate">{match.teamB.name}</span>
                 </div>
-                <div className="text-right">
-                  <div className="flex items-center gap-1 text-xs text-gray-400">
-                    <Clock size={12} />
-                    {matchDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                  </div>
-                  <div className="flex items-center gap-1 text-xs text-gray-400">
-                    <Calendar size={12} />
-                    {matchDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  </div>
+
+                {/* Alpha Pick */}
+                 <div className="hidden md:flex items-center gap-2 justify-center w-1/3">
+                    <Badge variant="outline" className="border-blue-400/30 text-blue-300 bg-blue-400/10 text-xs">
+                        Alpha Pick: {alphaPick.team}
+                    </Badge>
+                </div>
+
+
+                {/* Betting Options */}
+                <div className="flex items-center justify-end gap-2 w-1/3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={isInParlay}
+                    onClick={() => onSelectBet({
+                      poolType: 'market',
+                      matchId: match._id,
+                      matchName: `${match.teamA.name} vs ${match.teamB.name}`,
+                      selectionName: match.teamA.name,
+                      selectionId: `${match._id}-market-0`,
+                      odds: odds.home,
+                      teamAName: match.teamA.name,
+                      teamBName: match.teamB.name
+                    })}
+                    className="border-gray-600 justify-between flex-1"
+                  >
+                    <span className="text-xs">{odds.home.toFixed(2)}</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={isInParlay}
+                    onClick={() => onSelectBet({
+                      poolType: 'market',
+                      matchId: match._id,
+                      matchName: `${match.teamA.name} vs ${match.teamB.name}`,
+                      selectionName: 'Draw',
+                      selectionId: `${match._id}-market-1`,
+                      odds: odds.draw,
+                      teamAName: match.teamA.name,
+                      teamBName: match.teamB.name
+                    })}
+                    className="border-gray-600 justify-between flex-1"
+                  >
+                    <span className="text-xs">{odds.draw.toFixed(2)}</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={isInParlay}
+                    onClick={() => onSelectBet({
+                      poolType: 'market',
+                      matchId: match._id,
+                      matchName: `${match.teamA.name} vs ${match.teamB.name}`,
+                      selectionName: match.teamB.name,
+                      selectionId: `${match._id}-market-2`,
+                      odds: odds.away,
+                      teamAName: match.teamA.name,
+                      teamBName: match.teamB.name
+                    })}
+                    className="border-gray-600 justify-between flex-1"
+                  >
+                    <span className="text-xs">{odds.away.toFixed(2)}</span>
+                  </Button>
                 </div>
               </div>
-
-              {/* Alpha Pick */}
-              <div className="mb-3 p-2 bg-blue-900/20 rounded border border-blue-500/30">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-blue-400">Alpha Pick</span>
-                  <Badge variant="outline" className="border-green-400/30 text-green-400 bg-green-400/10 text-xs">
-                    {alphaPick.confidence}% confident
-                  </Badge>
-                </div>
-                <div className="text-sm font-bold text-white mt-1">{alphaPick.team}</div>
-              </div>
-
-              {/* Betting Options */}
-              <div className="grid grid-cols-3 gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={isInParlay}
-                  onClick={() => onSelectBet({
-                    poolType: 'market',
-                    matchId: match._id,
-                    matchName: `${match.teamA.name} vs ${match.teamB.name}`,
-                    selectionName: match.teamA.name,
-                    selectionId: 0,
-                    odds: odds.home
-                  })}
-                  className="border-gray-600 justify-between h-auto py-2 px-3"
-                >
-                  <span className="text-xs">{match.teamA.name}</span>
-                  <span className="text-green-400 font-mono text-xs">{odds.home.toFixed(2)}x</span>
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={isInParlay}
-                  onClick={() => onSelectBet({
-                    poolType: 'market',
-                    matchId: match._id,
-                    matchName: `${match.teamA.name} vs ${match.teamB.name}`,
-                    selectionName: 'Draw',
-                    selectionId: 1,
-                    odds: odds.draw
-                  })}
-                  className="border-gray-600 justify-between h-auto py-2 px-3"
-                >
-                  <span className="text-xs">Draw</span>
-                  <span className="text-green-400 font-mono text-xs">{odds.draw.toFixed(2)}x</span>
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={isInParlay}
-                  onClick={() => onSelectBet({
-                    poolType: 'market',
-                    matchId: match._id,
-                    matchName: `${match.teamA.name} vs ${match.teamB.name}`,
-                    selectionName: match.teamB.name,
-                    selectionId: 2,
-                    odds: odds.away
-                  })}
-                  className="border-gray-600 justify-between h-auto py-2 px-3"
-                >
-                  <span className="text-xs">{match.teamB.name}</span>
-                  <span className="text-green-400 font-mono text-xs">{odds.away.toFixed(2)}x</span>
-                </Button>
-              </div>
-
-              {isInParlay && (
+               {isInParlay && (
                 <div className="mt-2 text-center">
-                  <p className="text-xs text-blue-400">✓ Added to parlay</p>
+                  <p className="text-xs text-blue-400">✓ This match is in your parlay</p>
                 </div>
               )}
             </div>

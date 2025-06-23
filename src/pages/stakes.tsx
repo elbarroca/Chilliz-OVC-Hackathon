@@ -9,17 +9,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { type UserStake } from "@/types";
 import { Compass } from 'lucide-react';
-import { useState } from "react";
-import { UpcomingMatchesSelector } from "@/components/features/UpcomingMatchesSelector";
-import { RecommendedMatches } from "@/components/features/RecommendedMatches";
-import { type ParlaySelectionDetails } from "@/components/features/StakingInterface";
-import { FloatingParlay } from "@/components/features/FloatingParlay";
+import { StakeHistoryCard } from "@/components/features/StakeHistoryCard";
+import { useParlayState } from "@/hooks/use-parlay-state";
+import { Rocket, History, TrendingUp, TrendingDown } from "lucide-react";
 
 const fetcher = async (url: string): Promise<UserStake[]> => {
   const res = await fetch(url);
   if (!res.ok) {
     const error = new Error('An error occurred while fetching the data.');
-    // Attach extra info to the error object.
     const info = await res.json();
     (error as any).info = info;
     (error as any).status = res.status;
@@ -30,38 +27,20 @@ const fetcher = async (url: string): Promise<UserStake[]> => {
 
 const StakesPage: NextPage = () => {
   const { address, isConnected } = useAccount();
-  const [parlaySelections, setParlaySelections] = useState<ParlaySelectionDetails[]>([]);
+  
+  // Use the centralized parlay state hook
+  const { 
+    parlaySelections, 
+    handleSelectBet,
+    handleRemoveParlayItem, 
+    handleClearParlay, 
+    handlePlaceParlayBet 
+  } = useParlayState();
 
   const { data: stakes, error, isLoading } = useSWR<UserStake[]>(
     isConnected ? `/api/stakes/${address}` : null,
     fetcher
   );
-
-  const handleSelectParlay = (selection: ParlaySelectionDetails) => {
-    setParlaySelections(prev => {
-      // Prevent adding if match already in parlay
-      if (prev.some(s => s.matchId === selection.matchId)) {
-        return prev;
-      }
-      return [...prev, selection];
-    });
-  };
-
-  const handleRemoveParlay = (matchId: string) => {
-    setParlaySelections(prev => prev.filter(s => s.matchId !== matchId));
-  };
-
-  const handleClearParlay = () => {
-    setParlaySelections([]);
-  };
-
-  const handlePlaceParlayBet = (amount: number) => {
-    // TODO: Implement actual parlay betting logic
-    console.log('Placing parlay bet for:', amount, 'CHZ with selections:', parlaySelections);
-    alert(`Parlay bet of ${amount} CHZ placed! (See console for details)`);
-    handleClearParlay();
-  };
-
 
   if (!isConnected) {
     return (
@@ -73,7 +52,7 @@ const StakesPage: NextPage = () => {
             <p className="text-gray-400 mb-8">
               To view your personal staking dashboard, track performance, and manage your stakes, please connect your wallet first.
             </p>
-            {/* The ConnectButton will open the wallet connection modal */}
+            {/* The ConnectButton from RainbowKit will be rendered in the Header */}
           </div>
         </main>
         <Footer />
@@ -82,7 +61,7 @@ const StakesPage: NextPage = () => {
   }
   
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col">
+    <div className="min-h-screen bg-gradient-to-br from-black via-[#0a0a0a] to-[#141414] text-white flex flex-col">
       <Header />
       <main className="flex-grow container mx-auto px-4 py-12">
         <div className="mb-12">
@@ -95,8 +74,7 @@ const StakesPage: NextPage = () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-          {/* Left Column: Stats and Parlay Builder */}
-          <div className="lg:col-span-1 space-y-8 sticky top-28">
+          <div className="lg:col-span-1 space-y-8 lg:sticky top-28">
             <StatsSummaryCard stakes={stakes} isLoading={isLoading} />
             <Card className="bg-gradient-to-br from-gray-900/50 to-black border-gray-700">
               <CardContent className="p-6">
@@ -111,31 +89,38 @@ const StakesPage: NextPage = () => {
             </Card>
           </div>
 
-          {/* Right Column: Recommended Matches for Parlay */}
           <div className="lg:col-span-2 space-y-8">
-            <UpcomingMatchesSelector 
-              onSelect={(selection) => handleSelectParlay({
-                poolType: 'market',
-                matchId: selection.matchId,
-                matchName: selection.matchName,
-                selectionName: selection.selectionName,
-                selectionId: selection.selectionId,
-                odds: selection.odds
-              })}
-              selectedMatchIds={parlaySelections.map(s => s.matchId)}
-            />
-            <RecommendedMatches 
-              onSelectBet={handleSelectParlay}
-              parlaySelections={parlaySelections}
-            />
+            <div className="bg-gray-900/50 p-6 rounded-2xl border border-gray-800">
+                <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+                        <History size={24} />
+                        Stake History
+                    </h2>
+                    {stakes && stakes.length > 5 && (
+                        <Button variant="outline" className="border-gray-700 bg-gray-800/60 hover:bg-gray-800">
+                            View All
+                        </Button>
+                    )}
+                </div>
+                {isLoading && <p className="text-gray-400">Loading your stakes...</p>}
+                {error && <p className="text-red-400">Failed to load stakes.</p>}
+                {stakes && stakes.length > 0 && (
+                    <div className="space-y-4">
+                        {stakes.slice(0, 5).map(stake => (
+                            <StakeHistoryCard key={stake._id} stake={stake} />
+                        ))}
+                    </div>
+                )}
+                {stakes && stakes.length === 0 && (
+                  <div className="text-center py-12 text-gray-500">
+                      <Rocket size={48} className="mx-auto mb-4" />
+                      <h3 className="text-xl font-bold text-white mb-2">No Stakes Yet</h3>
+                      <p>You haven&apos;t placed any stakes yet. Start by exploring upcoming matches.</p>
+                  </div>
+                )}
+            </div>
           </div>
         </div>
-        <FloatingParlay
-            selections={parlaySelections}
-            onRemove={handleRemoveParlay}
-            onClear={handleClearParlay}
-            onPlaceBet={handlePlaceParlayBet}
-        />
       </main>
       <Footer />
     </div>

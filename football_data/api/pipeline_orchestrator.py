@@ -74,19 +74,23 @@ def process_fixture_from_db_data(match_processor_data: Dict[str, Any]) -> Option
         lambdas_orig = calculate_strength_adjusted_lambdas(match_processor_data)
         results["lambdas_original"] = lambdas_orig
 
-        if lambdas_orig[0] is not None and lambdas_orig[1] is not None:
-            mc_scenario_results_dict, mc_score_results_dict = run_monte_carlo_simulation(
+        if lambdas_orig and lambdas_orig[0] is not None and lambdas_orig[1] is not None:
+            simulation_output = run_monte_carlo_simulation(
                 lambdas_orig[0], lambdas_orig[1]
             )
-            if mc_scenario_results_dict is not None:
-                results["mc_probs"] = mc_scenario_results_dict
-            else:
-                logger.error(f"Failed Monte Carlo scenario simulation for {fixture_id}")
+            if simulation_output:
+                mc_scenario_results_dict, mc_score_results_dict = simulation_output
+                if mc_scenario_results_dict is not None:
+                    results["mc_probs"] = mc_scenario_results_dict
+                else:
+                    logger.error(f"Failed Monte Carlo scenario simulation for {fixture_id}")
 
-            if mc_score_results_dict is not None:
-                results["mc_score_probs"] = mc_score_results_dict
+                if mc_score_results_dict is not None:
+                    results["mc_score_probs"] = mc_score_results_dict
+                else:
+                    logger.error(f"Failed Monte Carlo scoreline simulation for {fixture_id}")
             else:
-                logger.error(f"Failed Monte Carlo scoreline simulation for {fixture_id}")
+                logger.error(f"Monte Carlo simulation returned no output for {fixture_id}")
         else:
             logger.error(f"Failed to calculate original strength-adjusted lambdas for MC simulation for {fixture_id}")
 
@@ -110,7 +114,7 @@ def process_fixture_from_db_data(match_processor_data: Dict[str, Any]) -> Option
         # GB predictions removed as requested
 
         # Bivariate Poisson
-        if lambdas_orig[0] is not None and lambdas_orig[1] is not None:
+        if lambdas_orig and lambdas_orig[0] is not None and lambdas_orig[1] is not None:
             lambda3 = get_league_goal_covariance_lambda3(match_processor_data)
             valid_lambda3 = False
             try:
@@ -537,29 +541,71 @@ async def run_edge_analysis(date: datetime):
             "message": f"Edge analysis failed: {str(e)}"
         } 
 
-async def run_full_pipeline(date: datetime):
+async def run_complete_workflow_for_date(target_date: datetime):
     """
-    Runs the full data pipeline: fetches new data, then generates predictions.
+    Runs the complete data fetching and prediction generation pipeline for a specific date.
     """
-    logger.info(f"--- Starting Full Pipeline for {date.strftime('%Y-%m-%d')} ---")
+    date_str = target_date.strftime('%Y-%m-%d')
+    logger.info(f"--- Starting complete workflow for {date_str} ---")
+
+    # Step 1: Data Fetching
+    logger.info(f"--- Running Data Fetching for {date_str} ---")
+    data_fetching_summary = await run_data_fetching(target_date)
+
+    if data_fetching_summary.get("status") != "success" or not data_fetching_summary.get("total_fixtures"):
+        message = "Data fetching failed or returned no fixtures."
+        logger.warning(f"{message} for {date_str}. Halting workflow.")
+        return {
+            "status": "error",
+            "stage": "data_fetching",
+            "message": message,
+            "details": data_fetching_summary
+        }
+
+    # Step 2: Prediction Generation
+    logger.info(f"--- Running Prediction Generation for {date_str} ---")
+    prediction_summary = await run_prediction_generation_and_save(target_date)
     
-    # Step 1: Fetch all required data for the day's matches.
-    # This function now includes caching logic.
-    fetch_summary = await run_data_fetching(date)
-    logger.info(f"Data fetching summary: {fetch_summary}")
+    # Step 3: Edge Analysis
+    logger.info(f"--- Running Edge Analysis for {date_str} ---")
+    edge_analysis_summary = await run_edge_analysis(target_date)
+
+    return {
+        "status": "success",
+        "date": date_str,
+        "data_fetching_summary": data_fetching_summary,
+        "prediction_summary": prediction_summary,
+        "edge_analysis_summary": edge_analysis_summary
+    }
+
+async def run_full_pipeline():
+    """
+    Runs the data fetching pipeline for today and tomorrow.
+    """
+    logger.info(f"--- Starting Full Data Collection for Today and Tomorrow ---")
     
-    # Step 2: Generate predictions for all processed matches for the day.
-    # This function also includes caching logic.
-    prediction_summary = await run_prediction_generation_and_save(date)
-    logger.info(f"Prediction generation summary: {prediction_summary}")
-    
-    logger.info(f"--- Full Pipeline Finished for {date.strftime('%Y-%m-%d')} ---")
+    all_processed_fixtures = []
+    fetch_summaries = {}
+    # Loop for today and tomorrow
+    for i in range(2):
+        target_date = datetime.now() + timedelta(days=i)
+        date_str = target_date.strftime('%Y-%m-%d')
+        
+        logger.info(f"--- Running Data Fetching for {date_str} ---")
+        fetch_summary = await run_data_fetching(target_date)
+        fetch_summaries[date_str] = fetch_summary
+        
+        if fetch_summary.get("status") == "success" and fetch_summary.get("total_fixtures"):
+            processed_ids = fetch_summary.get("processed_fixture_ids")
+            if processed_ids:
+                all_processed_fixtures.extend(processed_ids)
+
+    logger.info(f"--- Full Data Collection Finished ---")
     
     return {
-        "pipeline_status": "completed",
-        "date": date.strftime('%Y-%m-%d'),
-        "data_fetching": fetch_summary,
-        "prediction_generation": prediction_summary
+        "pipeline_status": "data_collection_completed",
+        "total_fixtures_processed": len(set(all_processed_fixtures)),
+        "details": fetch_summaries
     }
 
 def transform_and_load_for_frontend_from_data(prediction_results: list):
@@ -613,16 +659,13 @@ def transform_and_load_for_frontend_from_data(prediction_results: list):
                     "winB_prob": mc_probs.get("prob_A", 0),
                 }
             }
-            # Using updateOne with upsert=True to not overwrite existing fields
-            db_manager._matches_collection.update_one(
-                {"matchId": int(fixture_id)},
-                {"$set": match_doc},
-                upsert=True
-            )
+            matches_to_load.append(match_doc)
         except Exception as e:
             logger.error(f"Error transforming prediction for fixture {fixture_id}: {e}", exc_info=True)
 
-    logger.info(f"Finished transforming and loading {len(prediction_results)} matches to the 'matches' collection.")
+    if matches_to_load:
+        db_manager.save_matches_for_frontend(matches_to_load)
+        logger.info(f"Finished transforming and loading {len(matches_to_load)} matches to the 'matches' collection.")
 
 
 def transform_and_load_for_frontend(prediction_files: list):

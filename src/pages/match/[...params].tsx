@@ -3,10 +3,11 @@ import Image from "next/image";
 import { useState } from "react";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
-import { StakingInterface, type ParlaySelectionDetails } from "@/components/features/StakingInterface";
+import { StakingInterface } from "@/components/features/StakingInterface";
 import { AlphaInsight } from "@/components/features/AlphaInsight";
 import { PredictionChart } from "@/components/features/PredictionChart";
-import { FloatingParlay } from "@/components/features/FloatingParlay";
+import { RecommendedMatches } from "@/components/features/RecommendedMatches";
+import { ParlayBuilder } from "@/components/features/ParlayBuilder";
 import { type MatchWithAnalysis } from "@/types";
 import { useParlayState } from "@/hooks/use-parlay-state";
 import { Calendar, Users, Clock, Zap } from "lucide-react";
@@ -192,28 +193,34 @@ const MatchPage: NextPage<{ match: MatchWithAnalysis }> = ({ match }) => {
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-2 space-y-8">
+            <h2 className="text-2xl font-bold text-white">Betting Markets</h2>
             <StakingInterface 
               match={match}
               onSelectBet={handleSelectBet}
               onPlaceSingleBet={handlePlaceSingleBet}
               parlaySelections={parlaySelections}
             />
+            <RecommendedMatches
+              onSelectBet={handleSelectBet}
+              parlaySelections={parlaySelections}
+              currentMatchId={match._id}
+            />
           </div>
           <div className="space-y-8 lg:sticky top-28">
             <AlphaInsight match={match} />
+            <div className="hidden lg:block">
+                <ParlayBuilder
+                    selections={parlaySelections}
+                    onRemove={handleRemoveParlayItem}
+                    onClear={handleClearParlay}
+                    onPlaceBet={handlePlaceParlayBet}
+                />
+            </div>
           </div>
         </div>
       </main>
       <Footer />
-      
-      {/* FloatingParlay outside main container to ensure proper positioning */}
-      <FloatingParlay
-          selections={parlaySelections}
-          onRemove={handleRemoveParlayItem}
-          onClear={handleClearParlay}
-          onPlaceBet={handlePlaceParlayBet}
-      />
     </div>
   );
 };

@@ -12,7 +12,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # Local imports
-from football_data.api.pipeline_orchestrator import run_full_pipeline
+from football_data.api.pipeline_orchestrator import run_data_fetching, run_complete_workflow_for_date
 from football_data.api.analysis_generator import FixtureAnalysisGenerator
 from football_data.get_data.api_football.db_mongo import db_manager
 from football_data.endpoints.results_updater import ResultsUpdater
@@ -111,6 +111,7 @@ async def root():
         "version": "2.0.0",
         "endpoints": {
             "collect_data": "POST /data/{date} - Collect and save games data for a specific date",
+            "run_workflow": "POST /workflow/run/{date} - Run the full data and prediction workflow for a date",
             "analyze_predictions": "GET /predictions/{date} - Get predictions for all games on a specific date",
             "get_fixture_analysis": "GET /predictions/fixture/{fixture_id} - Get prediction analysis for a specific fixture",
             "update_results": "POST /results/update - Check for and update finished game results"
@@ -176,7 +177,7 @@ async def collect_games_data(
     
     try:
         logger.info(f"Starting data collection for {date}")
-        result = await run_full_pipeline(target_date)
+        result = await run_data_fetching(target_date)
         
         # Get count of collected matches using the global db_manager
         fixture_ids = db_manager.get_match_fixture_ids_for_date(date)
@@ -200,6 +201,44 @@ async def collect_games_data(
     except Exception as e:
         logger.error(f"Error collecting data for {date}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Data collection failed: {str(e)}")
+
+@app.post("/workflow/run/{date}", tags=["Workflow"])
+async def run_complete_workflow(
+    date: str = Path(..., description="Target date in YYYY-MM-DD format to run the complete workflow.")
+):
+    """
+    Endpoint to run the full data collection and prediction pipeline for a specific date.
+    
+    This endpoint will:
+    1. Run the complete data fetching pipeline (`run_data_fetching`).
+    2. Run the prediction generation pipeline (`run_prediction_generation_and_save`).
+    3. Run edge analysis.
+    
+    Input: Date string (YYYY-MM-DD)
+    Output: Summary of the entire workflow.
+    """
+    try:
+        target_date = datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Please use YYYY-MM-DD.")
+    
+    try:
+        logger.info(f"Starting complete workflow for {date}")
+        result = await run_complete_workflow_for_date(target_date)
+        
+        if result.get("status") == "error":
+             raise HTTPException(status_code=500, detail=result)
+
+        return {
+            "status": "success",
+            "date": date,
+            "message": f"Complete workflow finished for {date}",
+            "details": result
+        }
+        
+    except Exception as e:
+        logger.error(f"Error running complete workflow for {date}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Complete workflow failed: {str(e)}")
 
 @app.get("/predictions/{date}", tags=["Predictions Analysis"], response_model=DateAnalysisResponse)
 async def analyze_predictions_for_date(

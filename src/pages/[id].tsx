@@ -7,13 +7,13 @@ import { StakingInterface, type ParlaySelectionDetails } from "@/components/feat
 import { AlphaInsight } from "@/components/features/AlphaInsight";
 import { PredictionChart } from "@/components/features/PredictionChart";
 import { RecommendedMatches } from "@/components/features/RecommendedMatches";
-import { FloatingParlay } from "@/components/features/FloatingParlay";
 import { ParlayBuilder } from "@/components/features/ParlayBuilder";
 import { type MatchWithAnalysis } from "@/types";
 import { useParlayState } from "@/hooks/use-parlay-state";
 import { Calendar, Users, Clock, Zap } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 
 export const getServerSideProps: GetServerSideProps = async (context) => {
   const { id } = context.params!;
@@ -178,44 +178,22 @@ const MatchPage: NextPage<{ match: MatchWithAnalysis }> = ({ match }) => {
             
             <h2 className="text-2xl font-bold text-white">Betting Markets</h2>
             
-            {parlaySelections.length > 0 && (
-              <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 border border-blue-700/50 rounded-lg p-4 mb-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                    <span className="bg-blue-600 text-white px-2 py-1 rounded-full text-sm font-bold">
-                      {parlaySelections.length}
-                    </span>
-                    Parlay Selections
-                  </h3>
-                  <div className="text-right">
-                    <p className="text-sm text-gray-400">Combined Odds</p>
-                    <p className="text-xl font-bold text-green-400 font-mono">
-                      {parlaySelections.reduce((acc, bet) => acc * bet.odds, 1).toFixed(2)}x
-                    </p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  {parlaySelections.map((selection, index) => (
-                    <div key={`${selection.matchId}-${selection.selectionId}`} className="bg-gray-800/50 rounded p-3 border border-gray-700/50">
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <p className="text-sm font-medium text-white">{selection.selectionName}</p>
-                          <p className="text-xs text-gray-400">{selection.matchName}</p>
-                        </div>
-                        <span className="font-mono text-green-400 font-bold">{selection.odds.toFixed(2)}x</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+            {match.status === 'UPCOMING' ? (
+              <StakingInterface 
+                match={match}
+                onSelectBet={handleSelectBet}
+                onPlaceSingleBet={handlePlaceSingleBet}
+                parlaySelections={parlaySelections}
+              />
+            ) : (
+              <Card className="bg-gray-900/50 border-gray-700/50">
+                <CardContent className="p-8 text-center text-gray-400">
+                  <Clock size={32} className="mx-auto mb-4 text-gray-500" />
+                  <h3 className="text-lg font-bold text-white">Betting has closed</h3>
+                  <p className="text-sm">This match is no longer available for betting.</p>
+                </CardContent>
+              </Card>
             )}
-            
-            <StakingInterface 
-              match={match}
-              onSelectBet={handleSelectBet}
-              onPlaceSingleBet={handlePlaceSingleBet}
-              parlaySelections={parlaySelections}
-            />
             
             <div className="pt-8">
               <h2 className="text-2xl font-bold text-white mb-4">More Matches</h2>
@@ -229,6 +207,14 @@ const MatchPage: NextPage<{ match: MatchWithAnalysis }> = ({ match }) => {
 
           <div className="space-y-8 lg:sticky top-28">
              <AlphaInsight match={match} />
+             <div className="hidden lg:block">
+               <ParlayBuilder
+                 selections={parlaySelections}
+                 onRemove={handleRemoveParlayItem}
+                 onClear={handleClearParlay}
+                 onPlaceBet={handlePlaceParlayBet}
+               />
+             </div>
           </div>
         </div>
         
@@ -247,14 +233,6 @@ const MatchPage: NextPage<{ match: MatchWithAnalysis }> = ({ match }) => {
         )}
       </main>
       <Footer />
-      
-      {/* FloatingParlay outside main container to ensure proper positioning */}
-      <FloatingParlay
-          selections={parlaySelections}
-          onRemove={handleRemoveParlayItem}
-          onClear={handleClearParlay}
-          onPlaceBet={handlePlaceParlayBet}
-      />
     </div>
   );
 };

@@ -75,21 +75,45 @@ export default async function handler(
       triggerPipelineStep('data', todayStr, pythonApiUrl),
       triggerPipelineStep('data', tomorrowStr, pythonApiUrl)
     ];
-    const [todayData, tomorrowData] = await Promise.all(dataPromises);
-    results.today.data = todayData;
-    results.tomorrow.data = tomorrowData;
+    const dataPromiseResults = await Promise.allSettled(dataPromises);
+
+    if (dataPromiseResults[0].status === 'fulfilled') {
+      results.today.data = dataPromiseResults[0].value;
+    } else {
+      results.today.data = { error: dataPromiseResults[0].reason?.message ?? 'Unknown error' };
+      console.error(`[CRON] Data collection for ${todayStr} failed:`, dataPromiseResults[0].reason);
+    }
+    
+    if (dataPromiseResults[1].status === 'fulfilled') {
+      results.tomorrow.data = dataPromiseResults[1].value;
+    } else {
+      results.tomorrow.data = { error: dataPromiseResults[1].reason?.message ?? 'Unknown error' };
+      console.error(`[CRON] Data collection for ${tomorrowStr} failed:`, dataPromiseResults[1].reason);
+    }
     
     // Then run predictions in parallel
     const predictionPromises = [
       triggerPipelineStep('predictions', todayStr, pythonApiUrl),
       triggerPipelineStep('predictions', tomorrowStr, pythonApiUrl)
     ];
-    const [todayPredictions, tomorrowPredictions] = await Promise.all(predictionPromises);
-    results.today.predictions = todayPredictions;
-    results.tomorrow.predictions = tomorrowPredictions;
+    const predictionPromiseResults = await Promise.allSettled(predictionPromises);
 
-    // Finally, trigger the results update check
-    await triggerPipelineStep('update', 'N/A', pythonApiUrl);
+    if (predictionPromiseResults[0].status === 'fulfilled') {
+        results.today.predictions = predictionPromiseResults[0].value;
+    } else {
+        results.today.predictions = { error: predictionPromiseResults[0].reason?.message ?? 'Unknown error' };
+        console.error(`[CRON] Predictions for ${todayStr} failed:`, predictionPromiseResults[0].reason);
+    }
+
+    if (predictionPromiseResults[1].status === 'fulfilled') {
+        results.tomorrow.predictions = predictionPromiseResults[1].value;
+    } else {
+        results.tomorrow.predictions = { error: predictionPromiseResults[1].reason?.message ?? 'Unknown error' };
+        console.error(`[CRON] Predictions for ${tomorrowStr} failed:`, predictionPromiseResults[1].reason);
+    }
+
+    // Finally, trigger the results update check - this will be moved to its own cron job
+    // await triggerPipelineStep('update', 'N/A', pythonApiUrl);
 
     res.status(200).json({
       message: 'Full data and prediction pipeline for today and tomorrow triggered successfully.',
