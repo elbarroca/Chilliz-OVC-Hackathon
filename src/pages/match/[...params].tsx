@@ -104,87 +104,86 @@ const MatchPage: NextPage<{ match: MatchWithAnalysis }> = ({ match }) => {
       <Header />
       <main className="flex-grow container mx-auto px-4 py-8 md:py-12">
         {/* Match Header */}
-        <section className="text-center mb-12 relative overflow-hidden rounded-2xl p-8 md:p-12 border border-gray-800 bg-gradient-to-br from-[#1A1A1A] to-black">
-             <div className="absolute -inset-2 bg-gradient-to-r from-gray-600 to-gray-700 blur-2xl opacity-10"></div>
-             <div className="absolute inset-0 bg-grid-white/[0.03]"></div>
-             <div className="relative">
-                {/* Match Status Badge */}
-                <div className="flex justify-center mb-6">
-                  <Badge className="bg-gradient-to-r from-gray-700 to-gray-800 text-white border-0 px-6 py-2 text-sm font-bold">
-                    {match.status === 'UPCOMING' ? '🔥 LIVE BETTING' : match.status}
-                  </Badge>
-                </div>
+          <section className="text-center mb-12 relative overflow-hidden rounded-2xl p-8 md:p-12 border border-gray-800 bg-gradient-to-br from-[#1A1A1A] to-black">
+            <div className="absolute -inset-2 bg-gradient-to-r from-gray-600 to-gray-700 blur-2xl opacity-10"></div>
+            <div className="absolute inset-0 bg-grid-white/[0.03]"></div>
+            <div className="relative flex flex-col items-center justify-center">
 
-                <div className="flex justify-center items-center gap-6 md:gap-12 mb-8">
-                    <div className="flex flex-col items-center gap-4 w-1/3 md:w-auto">
-                      <div className="relative group">
-                        <Image 
-                          src={teamALogoError ? defaultLogo : match.teamA.logoUrl}
-                          alt={match.teamA.name} 
-                          className="w-24 h-24 md:w-32 md:h-32 transition-transform group-hover:scale-110"
-                          width={128}
-                          height={128}
-                          onError={() => setTeamALogoError(true)}
-                        />
-                        <div className="absolute -inset-2 bg-gradient-to-r from-gray-500 to-gray-600 rounded-full opacity-0 group-hover:opacity-20 transition-opacity duration-300 blur-lg"></div>
-                      </div>
-                      <h2 className="text-xl md:text-3xl font-bold">{match.teamA.name}</h2>
+              {/* Match Status Badge */}
+              <div className="flex justify-center mb-6">
+                <Badge className="bg-gradient-to-r from-gray-700 to-gray-800 text-white border-0 px-6 py-2 text-sm font-bold">
+                  {match.status === 'UPCOMING' ? '🔥 LIVE BETTING' : match.status}
+                </Badge>
+              </div>
+
+              {/* Logos + VS */}
+              <div className="flex flex-col items-center gap-4 md:gap-8 mb-8">
+                <div className="flex items-center gap-6 md:gap-12">
+                  <div className="flex flex-col items-center">
+                    <Image 
+                      src={teamALogoError ? defaultLogo : match.teamA.logoUrl}
+                      alt={match.teamA.name} 
+                      className="w-24 h-24 md:w-32 md:h-32"
+                      width={128}
+                      height={128}
+                      onError={() => setTeamALogoError(true)}
+                    />
+                    <h2 className="text-xl md:text-3xl font-bold mt-2">{match.teamA.name}</h2>
+                  </div>
+
+                  <div className="text-center">
+                    <span className="text-4xl md:text-6xl font-light text-gray-400">VS</span>
+                    <div className="flex items-center justify-center gap-2 text-gray-400 mt-1">
+                      <Clock size={14} />
+                      <span className="text-xs font-medium">
+                        {matchDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
                     </div>
-                    
-                    <div className="text-center">
-                      <span className="text-4xl md:text-6xl font-light text-gray-400 mb-2 block">VS</span>
-                      <div className="flex items-center justify-center gap-2 text-gray-400">
-                        <Clock size={14} />
-                        <span className="text-xs font-medium">
-                          {matchDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
-                    </div>
-                    
-                    <div className="flex flex-col items-center gap-4 w-1/3 md:w-auto">
-                      <div className="relative group">
-                        <Image 
-                          src={teamBLogoError ? defaultLogo : match.teamB.logoUrl} 
-                          alt={match.teamB.name} 
-                          className="w-24 h-24 md:w-32 md:h-32 transition-transform group-hover:scale-110"
-                          width={128}
-                          height={128}
-                          onError={() => setTeamBLogoError(true)}
-                        />
-                        <div className="absolute -inset-2 bg-gradient-to-r from-gray-600 to-gray-700 rounded-full opacity-0 group-hover:opacity-20 transition-opacity duration-300 blur-lg"></div>
-                      </div>
-                      <h2 className="text-xl md:text-3xl font-bold">{match.teamB.name}</h2>
-                    </div>
+                  </div>
+
+                  <div className="flex flex-col items-center">
+                    <Image 
+                      src={teamBLogoError ? defaultLogo : match.teamB.logoUrl} 
+                      alt={match.teamB.name} 
+                      className="w-24 h-24 md:w-32 md:h-32"
+                      width={128}
+                      height={128}
+                      onError={() => setTeamBLogoError(true)}
+                    />
+                    <h2 className="text-xl md:text-3xl font-bold mt-2">{match.teamB.name}</h2>
+                  </div>
                 </div>
-                
-                <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 mt-8">
-                    <div className="flex items-center gap-2 text-gray-400">
-                        <Calendar size={16} />
-                        <time dateTime={match.matchTime} className="text-sm">
-                            {matchDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-                        </time>
-                    </div>
-                    {match.league && (
-                      <div className="flex items-center gap-2 text-gray-400">
-                          {match.league.logoUrl && (
-                            <Image 
-                              src={match.league.logoUrl}
-                              alt={match.league.name}
-                              width={16}
-                              height={16}
-                              className="w-4 h-4"
-                            />
-                          )}
-                          <span className="text-sm">{match.league.name}</span>
-                      </div>
+              </div>
+
+              {/* Match Info */}
+              <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 mt-4">
+                <div className="flex items-center gap-2 text-gray-400">
+                  <Calendar size={16} />
+                  <time dateTime={match.matchTime} className="text-sm">
+                    {matchDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                  </time>
+                </div>
+                {match.league && (
+                  <div className="flex items-center gap-2 text-gray-400">
+                    {match.league.logoUrl && (
+                      <Image 
+                        src={match.league.logoUrl}
+                        alt={match.league.name}
+                        width={16}
+                        height={16}
+                        className="w-4 h-4"
+                      />
                     )}
-                    <div className="flex items-center gap-2 text-gray-400">
-                        <Zap size={16} />
-                        <span className="text-sm font-medium">Alpha Pick: {alphaPick.team} ({alphaPick.confidence}%)</span>
-                    </div>
+                    <span className="text-sm">{match.league.name}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 text-gray-400">
+                  <Zap size={16} />
+                  <span className="text-sm font-medium">Alpha Pick: {alphaPick.team} ({alphaPick.confidence}%)</span>
                 </div>
-             </div>
-        </section>
+              </div>
+            </div>
+          </section>
 
         {/* Alpha Engine Prediction Charts */}
         <section className="mb-12">
